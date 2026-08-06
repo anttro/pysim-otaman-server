@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pysim-otaman-server"
+version = "0.1.0"
+description = "HTTP REST server wrapping pysim for the OTAMan PWA"
+requires-python = ">=3.8"
+dependencies = [
+    "pysim",
+]
+
+[project.scripts]
+pysim-otaman-server = "pysim_otaman_server.__main__:main"
