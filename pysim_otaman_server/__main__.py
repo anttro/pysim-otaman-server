@@ -47,7 +47,10 @@ def main():
     server.rs = rs
     server.app = app
     server.log_requests = opts.log_requests
-    print(f"pysim-otaman-server listening on http://{opts.http_host}:{opts.http_port}")
+    print("─" * 70)
+    print("  pysim-otaman-server listening on http://%s:%s" % (opts.http_host, opts.http_port))
+    print("  Now open OTAMan and click Connect in the pySim tab!")
+    print("─" * 70)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
