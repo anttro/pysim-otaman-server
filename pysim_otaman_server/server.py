@@ -414,6 +414,64 @@ class PysimHandler(BaseHTTPRequestHandler):
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 500)
                 self._log_resp(err)
+        elif self.path == '/api/write':
+            app = self.server.app
+            if not app:
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            name = body.get('name', '')
+            data = body.get('data', '')
+            fid = body.get('fid')
+            record_nr = body.get('record_nr')
+            parent_sel = body.get('parent_sel')
+            rs = app.rs
+            if not rs:
+                self._send_json({'error': _err('no_card_state', lang)}, 503)
+                self._log_resp({'error': _err('no_card_state', lang)})
+                return
+            lchan = rs.lchan[0]
+            try:
+                sel = fid if fid else name
+                _select_with_parent(lchan, sel, parent_sel, app)
+                ft = _get_file_type(lchan, lchan.selected_file)
+                is_record = ft in ('linear_fixed', 'cyclic')
+                if record_nr:
+                    cmd = 'update_record %d %s' % (record_nr, data)
+                elif is_record:
+                    cmd = 'update_record 1 %s' % data
+                else:
+                    cmd = 'update_binary %s' % data
+                out = StringIO()
+                old_stdout = app.stdout
+                old_stderr = sys.stderr
+                app.stdout = out
+                sys.stderr = out
+                try:
+                    app.onecmd_plus_hooks(cmd)
+                    output = out.getvalue()
+                finally:
+                    app.stdout = old_stdout
+                    sys.stderr = old_stderr
+                sw_match = re.search(r'SW:\s*(\w+)', output)
+                err_match = re.search(r'got (\w+)', output)
+                if err_match:
+                    sw = err_match.group(1)
+                    descs = {'6982': 'Security status not satisfied', '6983': 'PIN blocked',
+                             '6985': 'Conditions of use not satisfied', '6A88': 'Referenced data not found',
+                             '6A82': 'File not found'}
+                    resp = {'success': False, 'sw': sw, 'error': descs.get(sw, 'Error')}
+                else:
+                    sw = sw_match.group(1) if sw_match else '9000'
+                    resp = {'success': True, 'sw': sw}
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 500)
+                self._log_resp(err)
         elif self.path == '/api/tree':
             app = self.server.app
             if not app:
