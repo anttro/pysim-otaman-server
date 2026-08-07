@@ -189,3 +189,72 @@ Returns:
 ```json
 {"response": "...", "sw": "9000"}
 ```
+
+### `POST /api/help`
+
+Get structured help for a shell command.
+
+```json
+{"cmd": "apdu"}
+```
+
+Returns:
+```json
+{"usage": "apdu [-h] [--expect-sw EXPECT_SW] [--raw] APDU", "description": "...", "args": [{"name": "APDU", "type": "positional", "help": "..."}]}
+```
+
+### `POST /api/read`
+
+Read file content. Auto-detects transparent vs record files.
+
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "parent_sel": "3F00", "mode": "raw"}
+```
+
+Returns:
+```json
+{"success": true, "sw": "9000", "file_type": "transparent", "data": "..."}
+```
+
+### `POST /api/write`
+
+Write raw hex data to a file.
+
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "data": "A0A1A2...", "parent_sel": "3F00"}
+```
+
+For record files:
+```json
+{"name": "EF.ADN", "fid": "6F3A", "data": "A0A1...", "record_nr": 1, "parent_sel": "7F10"}
+```
+
+Returns:
+```json
+{"success": true, "sw": "9000"}
+```
+
+### `POST /api/select`
+
+Select a file by name or FID, with optional parent selection.
+
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "parent_sel": "3F00"}
+```
+
+Returns:
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "file_type": "transparent", "exists": true}
+```
+
+### `POST /api/tree`
+
+Get directory listing with typed children.
+
+```json
+{"name": "MF", "fid": "3F00"}
+```
+
+Returns:
+```json
+{"exists": true, "name": "MF", "fid": "3F00", "file_type": "df", "children": [{"name": "EF.ICCID", "fid": "2fe2", "isDir": false}]}

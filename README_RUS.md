@@ -178,3 +178,72 @@ sudo usermod -a -G pcscd $USER   # затем выйти и зайти зано�
 ```json
 {"response": "...", "sw": "9000"}
 ```
+
+### `POST /api/help`
+
+Структурированная справка по команде shell.
+
+```json
+{"cmd": "apdu"}
+```
+
+Возвращает:
+```json
+{"usage": "apdu [-h] [--expect-sw EXPECT_SW] [--raw] APDU", "description": "...", "args": [{"name": "APDU", "type": "positional", "help": "..."}]}
+```
+
+### `POST /api/read`
+
+Чтение содержимого файла. Автоопределение transparent/record.
+
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "parent_sel": "3F00", "mode": "raw"}
+```
+
+Возвращает:
+```json
+{"success": true, "sw": "9000", "file_type": "transparent", "data": "..."}
+```
+
+### `POST /api/write`
+
+Запись hex-данных в файл.
+
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "data": "A0A1A2...", "parent_sel": "3F00"}
+```
+
+Для record-файлов:
+```json
+{"name": "EF.ADN", "fid": "6F3A", "data": "A0A1...", "record_nr": 1, "parent_sel": "7F10"}
+```
+
+Возвращает:
+```json
+{"success": true, "sw": "9000"}
+```
+
+### `POST /api/select`
+
+Выбор файла по имени или FID, с опциональным выбором родителя.
+
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "parent_sel": "3F00"}
+```
+
+Возвращает:
+```json
+{"name": "EF.ICCID", "fid": "2FE2", "file_type": "transparent", "exists": true}
+```
+
+### `POST /api/tree`
+
+Получение списка файлов в директории.
+
+```json
+{"name": "MF", "fid": "3F00"}
+```
+
+Возвращает:
+```json
+{"exists": true, "name": "MF", "fid": "3F00", "file_type": "df", "children": [{"name": "EF.ICCID", "fid": "2fe2", "isDir": false}]}
