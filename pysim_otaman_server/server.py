@@ -8,7 +8,7 @@ from io import StringIO
 from pySim.transport import ApduTracer
 
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 
 
 class StderrApduTracer(ApduTracer):
@@ -44,6 +44,44 @@ def _get_lang(headers):
 
 def _err(key, lang):
     return ERROR_MSGS.get(lang, ERROR_MSGS['en']).get(key, key)
+
+
+def _strip_ansi(text):
+    return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+
+
+def _parse_help_text(text):
+    result = {'usage': '', 'description': '', 'args': []}
+    lines = text.split('\n')
+    in_usage = False
+    in_pos = False
+    in_opt = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('usage:'):
+            result['usage'] = stripped[6:].strip()
+            in_usage = True
+            in_pos = in_opt = False
+        elif stripped.startswith('positional arguments:'):
+            in_pos = True
+            in_opt = in_usage = False
+        elif stripped.startswith('options:') or stripped.startswith('optional arguments:'):
+            in_opt = True
+            in_pos = in_usage = False
+        elif in_pos and stripped and not stripped.startswith('usage:'):
+            m = re.match(r'^(\S+)\s+(.+)$', stripped)
+            if m:
+                result['args'].append({'name': m.group(1), 'type': 'positional', 'help': m.group(2)})
+        elif in_opt and stripped and not stripped.startswith('usage:'):
+            m = re.match(r'^(\S+(?:,\s*\S+)?)\s+(\S+\s+)?(.+)?$', stripped)
+            if m:
+                names = m.group(1)
+                first_name = names.split(',')[0].strip()
+                result['args'].append({'name': first_name, 'type': 'optional', 'help': (m.group(3) or '').strip()})
+        elif not in_pos and not in_opt and not in_usage:
+            if stripped:
+                result['description'] = (result['description'] + ' ' + stripped).strip()
+    return result
 
 
 def _get_file_type(lchan, cur_file):
@@ -180,7 +218,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             sys.stderr = out
             try:
                 app.onecmd_plus_hooks('cardinfo')
-                output = out.getvalue()
+                output = _strip_ansi(out.getvalue())
             except Exception as e:
                 output = str(e) + '\n' + traceback.format_exc()
             finally:
@@ -212,7 +250,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             sys.stderr = out
             try:
                 stop = app.onecmd_plus_hooks(cmd)
-                output = out.getvalue()
+                output = _strip_ansi(out.getvalue())
             except Exception as e:
                 output = str(e) + '\n' + traceback.format_exc()
             finally:
@@ -247,6 +285,30 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr.write("APDU: %s → ERROR: %s (%dms)\n" % (apdu_hex, str(e), elapsed))
                 self._send_json(err, 500)
                 self._log_resp(err)
+        elif self.path == '/api/help':
+            app = self.server.app
+            if not app:
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            cmd = body.get('cmd', '')
+            out = StringIO()
+            old_stdout = app.stdout
+            old_stderr = sys.stderr
+            app.stdout = out
+            sys.stderr = out
+            try:
+                app.onecmd_plus_hooks('help ' + cmd)
+                raw = out.getvalue()
+            finally:
+                app.stdout = old_stdout
+                sys.stderr = old_stderr
+            clean = _strip_ansi(raw)
+            parsed = _parse_help_text(clean)
+            self._send_json(parsed)
+            self._log_resp(parsed)
         elif self.path == '/api/select':
             app = self.server.app
             if not app:
@@ -314,7 +376,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr = out
                 try:
                     app.onecmd_plus_hooks(cmd)
-                    output = out.getvalue()
+                    output = _strip_ansi(out.getvalue())
                 finally:
                     app.stdout = old_stdout
                     sys.stderr = old_stderr
@@ -381,7 +443,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr = out
                 try:
                     app.onecmd_plus_hooks('tree')
-                    output = out.getvalue()
+                    output = _strip_ansi(out.getvalue())
                 finally:
                     app.stdout = old_stdout
                     sys.stderr = old_stderr
