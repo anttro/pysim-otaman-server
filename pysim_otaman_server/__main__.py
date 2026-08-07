@@ -6,7 +6,7 @@ from pySim.card_handler import CardHandler
 from pySim.commands import SimCardCommands
 
 from .shell import load_pysim_app
-from .server import PysimHandler, StderrApduTracer
+from .server import PysimHandler, StderrApduTracer, VERSION
 
 
 def main():
@@ -48,7 +48,7 @@ def main():
     server.app = app
     server.log_requests = opts.log_requests
     print("─" * 70)
-    print("  pysim-otaman-server listening on http://%s:%s" % (opts.http_host, opts.http_port))
+    print("  pysim-otaman-server v%s listening on http://%s:%s" % (VERSION, opts.http_host, opts.http_port))
     print("  Now open OTAMan and click Connect in the pySim tab!")
     print("─" * 70)
     try:

@@ -8,12 +8,42 @@ from io import StringIO
 from pySim.transport import ApduTracer
 
 
+VERSION = '1.0.0'
+
+
 class StderrApduTracer(ApduTracer):
     def trace_response(self, cmd, sw, resp):
         if resp:
             sys.stderr.write("APDU-TRACE: %s → SW: %s RESP: %s\n" % (cmd, sw, resp))
         else:
             sys.stderr.write("APDU-TRACE: %s → SW: %s\n" % (cmd, sw))
+
+
+ERROR_MSGS = {
+    'en': {
+        'app_not_init': 'Server not initialized',
+        'no_card_state': 'No card state available',
+        'reader_not_init': 'Reader not initialized',
+        'not_found': 'Not found',
+    },
+    'ru': {
+        'app_not_init': 'Сервер не инициализирован',
+        'no_card_state': 'Состояние карты недоступно',
+        'reader_not_init': 'Считыватель не инициализирован',
+        'not_found': 'Не найдено',
+    },
+}
+
+
+def _get_lang(headers):
+    lang = headers.get('Accept-Language', 'en')
+    if lang not in ('en', 'ru'):
+        lang = 'en'
+    return lang
+
+
+def _err(key, lang):
+    return ERROR_MSGS.get(lang, ERROR_MSGS['en']).get(key, key)
 
 
 def _get_file_type(lchan, cur_file):
@@ -87,7 +117,12 @@ class PysimHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path == '/api/status':
+        lang = _get_lang(self.headers)
+        if self.path == '/api/version':
+            self._log_req()
+            self._send_json({'version': VERSION})
+            self._log_resp({'version': VERSION})
+        elif self.path == '/api/status':
             self._log_req()
             app = self.server.app
             rs = app.rs if app else None
@@ -122,8 +157,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_req()
             app = self.server.app
             if not app:
-                self._send_json({'error': 'app not initialized'}, 503)
-                self._log_resp({'error': 'app not initialized'})
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
                 return
             cmds = sorted(
                 attr[3:] for attr in dir(app)
@@ -135,8 +170,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_req()
             app = self.server.app
             if not app:
-                self._send_json({'error': 'app not initialized'}, 503)
-                self._log_resp({'error': 'app not initialized'})
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
                 return
             out = StringIO()
             old_stdout = app.stdout
@@ -155,15 +190,16 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(resp)
             self._log_resp(resp)
         else:
-            self._send_json({'error': 'not found'}, 404)
-            self._log_resp({'error': 'not found'})
+            self._send_json({'error': _err('not_found', lang)}, 404)
+            self._log_resp({'error': _err('not_found', lang)})
 
     def do_POST(self):
+        lang = _get_lang(self.headers)
         if self.path == '/api/command':
             app = self.server.app
             if not app:
-                self._send_json({'error': 'app not initialized'}, 503)
-                self._log_resp({'error': 'app not initialized'})
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
                 return
             body = self._read_body()
             self._log_req(body)
@@ -191,8 +227,8 @@ class PysimHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/apdu':
             scc = self.server.scc
             if not scc:
-                self._send_json({'error': 'reader not initialized'}, 503)
-                self._log_resp({'error': 'reader not initialized'})
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
                 return
             body = self._read_body()
             self._log_req(body)
@@ -214,8 +250,8 @@ class PysimHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/select':
             app = self.server.app
             if not app:
-                self._send_json({'error': 'app not initialized'}, 503)
-                self._log_resp({'error': 'app not initialized'})
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
                 return
             body = self._read_body()
             self._log_req(body)
@@ -224,8 +260,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             parent_sel = body.get('parent_sel')
             rs = app.rs
             if not rs:
-                self._send_json({'error': 'no card state'}, 503)
-                self._log_resp({'error': 'no card state'})
+                self._send_json({'error': _err('no_card_state', lang)}, 503)
+                self._log_resp({'error': _err('no_card_state', lang)})
                 return
             lchan = rs.lchan[0]
             try:
@@ -246,8 +282,8 @@ class PysimHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/read':
             app = self.server.app
             if not app:
-                self._send_json({'error': 'app not initialized'}, 503)
-                self._log_resp({'error': 'app not initialized'})
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
                 return
             body = self._read_body()
             self._log_req(body)
@@ -258,8 +294,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             mode = body.get('mode', 'raw')
             rs = app.rs
             if not rs:
-                self._send_json({'error': 'no card state'}, 503)
-                self._log_resp({'error': 'no card state'})
+                self._send_json({'error': _err('no_card_state', lang)}, 503)
+                self._log_resp({'error': _err('no_card_state', lang)})
                 return
             lchan = rs.lchan[0]
             try:
@@ -319,8 +355,8 @@ class PysimHandler(BaseHTTPRequestHandler):
         elif self.path == '/api/tree':
             app = self.server.app
             if not app:
-                self._send_json({'error': 'app not initialized'}, 503)
-                self._log_resp({'error': 'app not initialized'})
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
                 return
             body = self._read_body()
             self._log_req(body)
@@ -330,8 +366,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             parent_sel = body.get('parent_sel')
             rs = app.rs
             if not rs:
-                self._send_json({'error': 'no card state'}, 503)
-                self._log_resp({'error': 'no card state'})
+                self._send_json({'error': _err('no_card_state', lang)}, 503)
+                self._log_resp({'error': _err('no_card_state', lang)})
                 return
             lchan = rs.lchan[0]
             try:
@@ -370,8 +406,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(err, 404)
                 self._log_resp(err)
         else:
-            self._send_json({'error': 'not found'}, 404)
-            self._log_resp({'error': 'not found'})
+            self._send_json({'error': _err('not_found', lang)}, 404)
+            self._log_resp({'error': _err('not_found', lang)})
 
     def log_message(self, format, *args):
         sys.stderr.write('%s - - [%s] %s\n' % (self.client_address[0], self.log_date_time_string(), format % args))

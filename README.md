@@ -8,10 +8,11 @@ Exposes a local HTTP API to execute pysim-shell commands against a SIM/USIM/UICC
 
 - **Python 3.8+** with `pip`
 - **Git**
-- **PC/SC smart card reader** (optional, for PC/SC transport) — requires `pcsc-lite` + `ccid` on Linux
-- **Serial/FTDI reader** (optional, for serial transport)
+- **Smart card reader (PC/SC or serial/FTDI) ** — PC/SC is preferable, requires `pcsc-lite` + `ccid` on Linux
 
 ## Quick start
+
+Make sure you have Python 3.8+ and Git installed!
 
 ### Linux / macOS
 
@@ -132,7 +133,26 @@ The setup script installs packages inside a virtual environment (`.venv/`) — n
 pip install --user pysim-otaman-server
 ```
 
+## Version compatibility
+
+| Server | PWA (OTAMan) | Status |
+|--------|-------------|--------|
+| 1.x.x | 1.x.x | ✅ Compatible |
+| 0.x.x | 1.x.x | ❌ Outdated — update server |
+| 2.x.x+ | 1.x.x | ⚠️ Server newer — update PWA |
+
+The server reports its version via `GET /api/version`. The PWA checks this on connect and warns if versions are incompatible.
+
 ## API
+
+### `GET /api/version`
+
+Returns server version for compatibility checking.
+
+**Example response:**
+```json
+{"version": "1.0.0"}
+```
 
 ### `GET /api/status`
 
