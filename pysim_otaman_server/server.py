@@ -1,5 +1,6 @@
 import json
 import sys
+import os
 import time
 import traceback
 import re
@@ -12,14 +13,11 @@ VERSION = '1.1.0'
 
 
 class StderrApduTracer(ApduTracer):
-    def __init__(self):
-        self._stderr = sys.stderr
     def trace_response(self, cmd, sw, resp):
+        msg = "APDU-TRACE: %s → SW: %s" % (cmd, sw)
         if resp:
-            self._stderr.write("APDU-TRACE: %s → SW: %s RESP: %s\n" % (cmd, sw, resp))
-        else:
-            self._stderr.write("APDU-TRACE: %s → SW: %s\n" % (cmd, sw))
-        self._stderr.flush()
+            msg += " RESP: %s" % resp
+        os.write(2, (msg + '\n').encode())
 
 
 ERROR_MSGS = {
