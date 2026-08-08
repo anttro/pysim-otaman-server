@@ -404,6 +404,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {'output': output}
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/menu':
+            resp = self.server.sim_menu if self.server.sim_menu else {'items': []}
+            self._send_json(resp)
+            self._log_resp(resp)
         else:
             self._send_json({'error': _err('not_found', lang)}, 404)
             self._log_resp({'error': _err('not_found', lang)})
@@ -702,10 +706,6 @@ class PysimHandler(BaseHTTPRequestHandler):
                 err = {'exists': False, 'error': str(e)}
                 self._send_json(err, 404)
                 self._log_resp(err)
-        elif self.path == '/api/menu':
-            resp = self.server.sim_menu if self.server.sim_menu else {'items': []}
-            self._send_json(resp)
-            self._log_resp(resp)
         elif self.path == '/api/send-ota':
             app = self.server.app
             if not app:
