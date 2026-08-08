@@ -8,8 +8,15 @@ from pySim.card_handler import CardHandler
 from pySim.commands import SimCardCommands
 from pySim.log import PySimLogger
 
+import gsm0338  # registers 'gsm03.38' codec for GsmOrUcs2Adapter
+from construct import GreedyBytes
+from osmocom.construct import GsmOrUcs2Adapter
+
 from .shell import load_pysim_app
 from .server import PysimHandler, StderrApduTracer, VERSION
+
+
+_STK_DECODE = GsmOrUcs2Adapter(GreedyBytes)
 
 
 def _log_stdout(msg):
@@ -68,11 +75,15 @@ def main():
                                     menu = {'command_number': cmd_num, 'items': items}
                             elif tag == 0x05 and tlen >= 1 and menu is not None:
                                 try:
-                                    menu['title'] = val.decode('ascii')
-                                except UnicodeDecodeError:
+                                    menu['title'] = _STK_DECODE._decode(val, {}, 'stk_title')
+                                except Exception:
                                     menu['title'] = val.hex()
                             elif tag == 0x8F and tlen >= 2:
-                                items.append({'id': val[0], 'text_raw': val[1:].hex()})
+                                try:
+                                    txt = _STK_DECODE._decode(val[1:], {}, 'stk_item')
+                                except Exception:
+                                    txt = val[1:].hex()
+                                items.append({'id': val[0], 'text': txt})
                         if menu:
                             sim_menu = menu
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
@@ -120,6 +131,8 @@ def main():
     server.sms_sc = opts.sms_sm_sc
     server.log_requests = opts.log_requests
     server.sim_menu = sim_menu
+    server.menu_active = False
+    server.stk_pending = None
     print("─" * 70)
     print("  pysim-otaman-server v%s listening on http://%s:%s" % (VERSION, opts.http_host, opts.http_port))
     print("  Now open OTAMan and click Connect in the pySim tab!")

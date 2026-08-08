@@ -9,6 +9,10 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import StringIO
 from pySim.transport import ApduTracer, ProactiveHandler
 
+import gsm0338  # registers 'gsm03.38' codec
+from construct import GreedyBytes
+from osmocom.construct import GsmOrUcs2Adapter
+
 
 VERSION = '1.3.2'
 
@@ -200,63 +204,15 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
         get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
     elif sw.startswith('91'):
-        while sw.startswith('91'):
-            fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
-            rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
-            fdata, sw = rv[0], rv[1]
-            cmd_num, cmd_type = 1, 0
-            dev_src, dev_dst = 0x83, 0x81
-            if fdata:
-                raw = bytes.fromhex(fdata)
-                if raw[0] == 0xD0:
-                    off = 2
-                    while off < len(raw) - 1:
-                        tag, tlen = raw[off], raw[off + 1]
-                        val = raw[off + 2: off + 2 + tlen]
-                        off += 2 + tlen
-                        if tag == 0x81 and tlen >= 3:
-                            cmd_num, cmd_type = val[0], val[1]
-                        elif tag == 0x82 and tlen >= 2:
-                            dev_src, dev_dst = val[0], val[1]
-                        elif tag == 0x8B and tlen >= 1:
-                            if scc._tp.proactive_handler:
-                                scc._tp.proactive_handler.submit_tpdu_hex = val.hex()
-            tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                            0x82, 0x02, dev_dst, dev_src,
-                            0x83, 0x02, 0x00, 0x00])
-            tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
-            sw = tr_rv[1]
+        def _capture_sms_tpdu(raw, cmd_num, cmd_type, dev_src, dev_dst):
+            if scc._tp.proactive_handler:
+                scc._tp.proactive_handler.submit_tpdu_hex = _find_sms_tpdu(raw)
+        _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
     if sw == '9000' and scc._tp.proactive_handler and not scc._tp.proactive_handler.submit_tpdu_hex:
         st_data, st_sw = scc._tp.send_apdu('80f2000000')
         if st_sw.startswith('91'):
-            sw = st_sw
-            while sw.startswith('91'):
-                fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
-                rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
-                fdata, sw = rv[0], rv[1]
-                cmd_num, cmd_type = 1, 0
-                dev_src, dev_dst = 0x83, 0x81
-                if fdata:
-                    raw = bytes.fromhex(fdata)
-                    if raw[0] == 0xD0:
-                        off = 2
-                        while off < len(raw) - 1:
-                            tag, tlen = raw[off], raw[off + 1]
-                            val = raw[off + 2: off + 2 + tlen]
-                            off += 2 + tlen
-                            if tag == 0x81 and tlen >= 3:
-                                cmd_num, cmd_type = val[0], val[1]
-                            elif tag == 0x82 and tlen >= 2:
-                                dev_src, dev_dst = val[0], val[1]
-                            elif tag == 0x8B and tlen >= 1:
-                                if scc._tp.proactive_handler:
-                                    scc._tp.proactive_handler.submit_tpdu_hex = val.hex()
-                tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x82, 0x02, dev_dst, dev_src,
-                                0x83, 0x02, 0x00, 0x00])
-                tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
-                sw = tr_rv[1]
+            _handle_proactive_chain(scc, st_sw, _capture_sms_tpdu)
     return data, sw
 
 
@@ -351,6 +307,94 @@ class PoRSubmitHandler(ProactiveHandler):
     def __init__(self):
         super().__init__()
         self.submit_tpdu_hex = None
+
+
+_STK_DECODE = GsmOrUcs2Adapter(GreedyBytes)
+
+
+def _decode_stk_text(raw):
+    try:
+        return _STK_DECODE._decode(raw, {}, 'stk')
+    except Exception:
+        return raw.hex()
+
+
+def _parse_proactive_header(raw):
+    cmd_num, cmd_type = 1, 0
+    dev_src, dev_dst = 0x83, 0x81
+    if raw[0] == 0xD0:
+        off = 2
+        while off < len(raw) - 1:
+            tag, tlen = raw[off], raw[off + 1]
+            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
+            if tag == 0x81 and tlen >= 3:
+                cmd_num, cmd_type = val[0], val[1]
+            elif tag == 0x82 and tlen >= 2:
+                dev_src, dev_dst = val[0], val[1]
+    return cmd_num, cmd_type, dev_src, dev_dst
+
+
+def _find_sms_tpdu(raw):
+    if raw[0] == 0xD0:
+        off = 2
+        while off < len(raw) - 1:
+            tag, tlen = raw[off], raw[off + 1]
+            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
+            if tag == 0x8B and tlen >= 1:
+                return val.hex()
+    return None
+
+
+def _parse_display_text(raw):
+    if raw[0] == 0xD0:
+        off = 2
+        while off < len(raw) - 1:
+            tag, tlen = raw[off], raw[off + 1]
+            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
+            if tag == 0x8D and tlen >= 1:
+                return _decode_stk_text(val)
+    return None
+
+
+def _parse_select_item(raw):
+    items = []
+    if raw[0] == 0xD0:
+        off = 2
+        while off < len(raw) - 1:
+            tag, tlen = raw[off], raw[off + 1]
+            val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
+            if tag == 0x05 and tlen >= 1:
+                try:
+                    _title = _decode_stk_text(val)
+                except Exception:
+                    pass
+            elif tag == 0x8F and tlen >= 2:
+                items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
+    return items
+
+
+def _handle_proactive_chain(scc, sw91, on_fetch=None):
+    sw = sw91
+    while sw.startswith('91'):
+        fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
+        rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
+        fdata, sw = rv[0], rv[1]
+        raw = bytes.fromhex(fdata) if fdata else None
+        action = None
+        if raw:
+            cmd_num, cmd_type, dev_src, dev_dst = _parse_proactive_header(raw)
+        else:
+            cmd_num, cmd_type, dev_src, dev_dst = 1, 0, 0x83, 0x81
+        if on_fetch:
+            action = on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst)
+        if action != 'pause':
+            tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+                            0x82, 0x02, dev_dst, dev_src,
+                            0x83, 0x02, 0x00, 0x00])
+            tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+            sw = tr_rv[1]
+            if action == 'exit':
+                return sw
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -457,7 +501,14 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/menu':
-            resp = self.server.sim_menu if self.server.sim_menu else {'items': []}
+            menu = self.server.sim_menu or {'items': []}
+            resp = {**menu, 'active': self.server.menu_active}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/stk-status':
+            resp = {'active': self.server.menu_active,
+                    'pending': self.server.stk_pending is not None,
+                    'pending_type': self.server.stk_pending['type'] if self.server.stk_pending else None}
             self._send_json(resp)
             self._log_resp(resp)
         else:
@@ -758,6 +809,96 @@ class PysimHandler(BaseHTTPRequestHandler):
                 err = {'exists': False, 'error': str(e)}
                 self._send_json(err, 404)
                 self._log_resp(err)
+        elif self.path == '/api/menu-select':
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': 'card reader not available'}, 503)
+                return
+            body = self._read_body()
+            self._log_req(body)
+            item_id = body.get('item_id', 0)
+            if not isinstance(item_id, int):
+                item_id = int(item_id)
+            self.server.menu_active = True
+            # Build ENVELOPE(Menu Selection): D3 [len] DeviceIdentities + ItemIdentifier
+            menu_tlv = bytes([0xD3, 0x07, 0x82, 0x02, 0x81, 0x83, 0x90, 0x01, item_id])
+            env_hex = '80c20000%02x%s' % (len(menu_tlv), menu_tlv.hex())
+            data, sw = scc._tp.send_apdu(env_hex)
+            resp = {'type': 'done', 'sw': sw}
+            if sw.startswith('91'):
+                def _on_menu_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst):
+                    if cmd_type == 0x21:
+                        text = _parse_display_text(raw) if raw else None
+                        if text:
+                            self.server.stk_pending = {'type': 'display_text',
+                                'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                                'dev_src': dev_src, 'dev_dst': dev_dst, 'text': text}
+                            resp.update(type='display_text', text=text)
+                            return 'pause'
+                    elif cmd_type == 0x24:
+                        items = _parse_select_item(raw) if raw else []
+                        self.server.stk_pending = {'type': 'select_item',
+                            'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                            'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
+                        resp.update(type='select_item', items=items)
+                        return 'pause'
+                _handle_proactive_chain(scc, sw, _on_menu_fetch)
+            else:
+                self.server.menu_active = False
+                self.server.stk_pending = None
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/menu-respond':
+            scc = self.server.scc
+            if not self.server.stk_pending:
+                self._send_json({'error': 'no pending command'}, 400)
+                return
+            body = self._read_body()
+            self._log_req(body)
+            result = body.get('result', 'ok')
+            item_id = body.get('item_id')
+            RESULT_MAP = {'ok': 0x00, 'cancel': 0x10, 'timeout': 0x11, 'back': 0x12}
+            gr = RESULT_MAP.get(result, 0x00)
+            pd = self.server.stk_pending
+            # Build TERMINAL RESPONSE
+            cd = bytes([0x81, 0x03, pd['cmd_num'], pd['cmd_type'], 0x00])
+            di = bytes([0x82, 0x02, pd['dev_dst'], pd['dev_src']])
+            tr_data = cd + di
+            if isinstance(item_id, int) and result == 'ok' and pd['type'] == 'select_item':
+                tr_data += bytes([0x90, 0x01, item_id])
+            tr_data += bytes([0x83, 0x02, gr, 0x00])
+            tr_hex = '80140000%02x%s' % (len(tr_data), tr_data.hex())
+            tr_rv = scc._tp.send_apdu(tr_hex)
+            sw = tr_rv[1]
+            resp = {'sw': sw}
+            if result == 'cancel':
+                self.server.stk_pending = None
+                self.server.menu_active = False
+            else:
+                self.server.stk_pending = None
+                if sw.startswith('91'):
+                    def _on_menu_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst):
+                        if cmd_type == 0x21:
+                            text = _parse_display_text(raw) if raw else None
+                            if text:
+                                self.server.stk_pending = {'type': 'display_text',
+                                    'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                                    'dev_src': dev_src, 'dev_dst': dev_dst, 'text': text}
+                                resp.update(type='display_text', text=text)
+                                return 'pause'
+                        elif cmd_type == 0x24:
+                            items = _parse_select_item(raw) if raw else []
+                            self.server.stk_pending = {'type': 'select_item',
+                                'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                                'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
+                            resp.update(type='select_item', items=items)
+                            return 'pause'
+                    _handle_proactive_chain(scc, sw, _on_menu_fetch)
+                else:
+                    self.server.menu_active = False
+                    resp['type'] = 'done'
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/send-ota':
             app = self.server.app
             if not app:
