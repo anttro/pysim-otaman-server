@@ -9,7 +9,7 @@ from io import StringIO
 from pySim.transport import ApduTracer
 
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 
 
 class StderrApduTracer(ApduTracer):
@@ -125,14 +125,24 @@ def _parse_tree_output(output):
     return children
 
 
-def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1):
+def _encode_sms_oa(number):
+    digits = [int(c) for c in number if c.isdigit()]
+    oa = bytes([len(digits), 0x90])
+    for i in range(0, len(digits), 2):
+        first = digits[i]
+        second = digits[i + 1] if i + 1 < len(digits) else 0xF
+        oa += bytes([(second << 4) | first])
+    return oa
+
+
+def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345'):
     chunk = bytes.fromhex(chunk_hex)
     udh = b''
     if chunk_total > 1:
         udh = bytes([0x00, 0x03, 0x01, chunk_total, chunk_num])
     tp_ud = udh + chunk
     first_byte = 0x40 if udh else 0x00
-    tpdu = bytes([first_byte, 0x00, 0x00, 0x7F, 0x04, len(tp_ud)]) + tp_ud
+    tpdu = bytes([first_byte]) + _encode_sms_oa(oa_number) + bytes([0x7F, 0x04, len(tp_ud)]) + tp_ud
     return tpdu.hex()
 
 
@@ -589,7 +599,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 last_data = None
                 last_sw = None
                 for i, chunk in enumerate(chunks):
-                    tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1) if total > 1 else _build_sms_tpdu(sp)
+                    tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa) if total > 1 else _build_sms_tpdu(sp, oa_number=self.server.sms_oa)
                     data, sw = _send_envelope(tpdu, scc)
                     last_data = data
                     last_sw = sw
