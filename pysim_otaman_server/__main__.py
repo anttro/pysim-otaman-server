@@ -27,6 +27,8 @@ def main():
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
     parser.add_argument('--sms-sm-sc', default='12345678912', metavar='DIGITS',
                         help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345678912)')
+    parser.add_argument('--terminal-profile', default='ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', metavar='HEX',
+                        help='TERMINAL PROFILE payload (default: all-FF, 32 bytes)')
 
     opts = parser.parse_args()
     sl = None
@@ -42,7 +44,7 @@ def main():
         scc = SimCardCommands(sl)
         sl.wait_for_card(3)
         rs, card = mod.init_card(sl, opts.skip_card_init)
-        tp_hex = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        tp_hex = opts.terminal_profile
         tp_data, tp_sw = scc._tp.send_apdu('80100000%02x%s' % (len(tp_hex) // 2, tp_hex))
         if tp_sw.startswith('91'):
             fetch_len = int(tp_sw[2:], 16)
