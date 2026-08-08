@@ -2,7 +2,7 @@
 
 HTTP REST server wrapping [pysim](https://osmocom.org/projects/pysim/wiki) for the [OTAMan](https://github.com/anttro/otaman) PWA.
 
-Exposes a local HTTP API to execute pysim-shell commands against a SIM/USIM/UICC card reader.
+Exposes a local HTTP API to execute pysim-shell commands against a SIM/USIM/UICC card reader, send OTA commands (SCP80), and browse the SIM Toolkit menu.
 
 ## Prerequisites
 
@@ -319,8 +319,55 @@ and the decoded SPI fields.
 
 ### `GET /api/menu`
 
-Returns the SETUP MENU captured from the card's TERMINAL PROFILE response
-at startup. Empty `{"items": []}` if the card didn't send a menu.
+Returns the SIM Toolkit SETUP MENU captured from the card's TERMINAL PROFILE
+response at startup. Empty `{"items": []}` if the card didn't send a menu.
+
+**Response:**
+```json
+{"command_number": 1, "items": [{"id": 128, "text": "Настройки/Settings"}],
+ "title": "Alfa Mobile", "active": false}
+```
+
+### `POST /api/menu-select`
+
+Sends an `ENVELOPE(MENU SELECTION)` with the selected item ID, then handles
+the card's proactive response (DISPLAY TEXT or SELECT ITEM).
+
+```json
+{"item_id": 128}
+```
+
+**Response:**
+```json
+{"type": "display_text", "text": "Hello", "sw": "9122"}
+```
+or
+```json
+{"type": "select_item", "items": [{"id": 1, "text": "Sub-menu"}], "sw": "9122"}
+```
+
+### `POST /api/menu-respond`
+
+Sends `TERMINAL RESPONSE` to the current proactive command with the given result
+code. Continues the proactive chain if the card responds with `91XX`.
+
+```json
+{"result": "ok", "item_id": 1}
+```
+
+| `result` | TERMINAL RESPONSE code | Meaning |
+|---|---|---|
+| `ok` | `0x00` | Command performed successfully |
+| `back` | `0x12` | Backward move requested |
+| `cancel` | `0x10` | Proactive session terminated |
+| `timeout` | `0x11` | No response from user |
+
+### `GET /api/stk-status`
+
+Returns the current STK session state.
+```json
+{"active": true, "pending": true, "pending_type": "select_item"}
+```
 
 ### `POST /api/read`
 

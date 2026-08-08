@@ -2,7 +2,7 @@
 
 HTTP REST сервер, оборачивающий [pysim](https://osmocom.org/projects/pysim/wiki) для PWA [OTAMan](https://github.com/anttro/otaman).
 
-Предоставляет локальный HTTP API для выполнения команд pysim-shell с SIM/USIM/UICC считывателем.
+Предоставляет локальный HTTP API для выполнения команд pysim-shell с SIM/USIM/UICC считывателем, отправки OTA-команд (SCP80) и навигации по SIM Toolkit меню.
 
 ## Требования
 
@@ -301,8 +301,55 @@ curl -s http://127.0.0.1:8080/api/send-ota -X POST -d '{
 
 ### `GET /api/menu`
 
-Возвращает SETUP MENU, полученный от карты в ответ на TERMINAL PROFILE.
+Возвращает SETUP MENU SIM Toolkit, полученный от карты в ответ на TERMINAL PROFILE.
 Пустой `{"items": []}` — карта не отправила меню.
+
+**Ответ:**
+```json
+{"command_number": 1, "items": [{"id": 128, "text": "Настройки/Settings"}],
+ "title": "Alfa Mobile", "active": false}
+```
+
+### `POST /api/menu-select`
+
+Отправляет `ENVELOPE(MENU SELECTION)` с выбранным ID элемента меню,
+затем обрабатывает проактивный ответ карты (DISPLAY TEXT или SELECT ITEM).
+
+```json
+{"item_id": 128}
+```
+
+**Ответ:**
+```json
+{"type": "display_text", "text": "Здравствуйте", "sw": "9122"}
+```
+или
+```json
+{"type": "select_item", "items": [{"id": 1, "text": "Подменю"}], "sw": "9122"}
+```
+
+### `POST /api/menu-respond`
+
+Отправляет `TERMINAL RESPONSE` на текущую проактивную команду с указанным
+кодом результата. Продолжает цепочку проактивных команд при ответе `91XX`.
+
+```json
+{"result": "ok", "item_id": 1}
+```
+
+| `result` | Код TERMINAL RESPONSE | Значение |
+|---|---|---|
+| `ok` | `0x00` | Команда выполнена успешно |
+| `back` | `0x12` | Назад |
+| `cancel` | `0x10` | Проактивная сессия завершена |
+| `timeout` | `0x11` | Нет ответа от пользователя |
+
+### `GET /api/stk-status`
+
+Возвращает текущее состояние STK-сессии.
+```json
+{"active": true, "pending": true, "pending_type": "select_item"}
+```
 
 ### `POST /api/read`
 
