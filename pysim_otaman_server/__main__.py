@@ -89,11 +89,11 @@ def main():
                         help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345678912)')
     parser.add_argument('--terminal-profile', default='7FFFFFFF7F0000CF02', metavar='HEX',
                         help='TERMINAL PROFILE payload (default: 10-byte GSM profile with SMS-PP download)')
-    parser.add_argument('--card-init', action='store_true', default=False,
-                        help='Run full pysim card initialization (default: skip to preserve CAT session)')
+    parser.add_argument('--no-card-init', action='store_true', default=False,
+                        help='Skip pysim card initialization (preserve CAT session — no file manager)')
 
     opts = parser.parse_args()
-    opts.skip_card_init = not opts.card_init
+    opts.skip_card_init = opts.no_card_init
     sl = None
     scc = None
     card = None
