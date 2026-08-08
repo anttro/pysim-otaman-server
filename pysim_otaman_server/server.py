@@ -194,7 +194,29 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
     dev_ids = DeviceIdentities(decoded={'source_dev_id': 'network', 'dest_dev_id': 'uicc'})
     raw_tpdu = RawTpdu(tpdu_hex)
     sms_dl = SMSPPDownload(children=[dev_ids, address, raw_tpdu])
-    data, sw = scc.envelope(b2h(sms_dl.to_tlv()))
+    env_hex = '80c20000%02x%s' % (len(sms_dl.to_tlv()), b2h(sms_dl.to_tlv()))
+    data, sw = scc._tp.send_apdu(env_hex)
+    if sw.startswith('61'):
+        get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
+        data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
+    elif sw.startswith('91'):
+        from pySim.cat import ProactiveCommand
+        from osmocom.utils import h2b
+        fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
+        rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
+        fdata, fsw = rv[0], rv[1]
+        if fdata and scc._tp.proactive_handler:
+            pcmd = ProactiveCommand()
+            try:
+                parsed = pcmd.from_tlv(h2b(fdata))
+                scc._tp.proactive_handler.receive_fetch_raw(pcmd, parsed)
+            except Exception:
+                pass
+        tr_tlv = bytes([0x81, 0x03, 0x01, 0x00, 0x00,
+                        0x82, 0x02, 0x83, 0x81,
+                        0x83, 0x02, 0x00, 0x00])
+        scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+        data, sw = '', '9000'
     return data, sw
 
 
