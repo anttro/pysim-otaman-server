@@ -12,11 +12,14 @@ VERSION = '1.1.0'
 
 
 class StderrApduTracer(ApduTracer):
+    def __init__(self):
+        self._stderr = sys.stderr
     def trace_response(self, cmd, sw, resp):
         if resp:
-            sys.stderr.write("APDU-TRACE: %s → SW: %s RESP: %s\n" % (cmd, sw, resp))
+            self._stderr.write("APDU-TRACE: %s → SW: %s RESP: %s\n" % (cmd, sw, resp))
         else:
-            sys.stderr.write("APDU-TRACE: %s → SW: %s\n" % (cmd, sw))
+            self._stderr.write("APDU-TRACE: %s → SW: %s\n" % (cmd, sw))
+        self._stderr.flush()
 
 
 ERROR_MSGS = {
@@ -122,6 +125,47 @@ def _parse_tree_output(output):
                 'isDir': cname.startswith('ADF.') or cname.startswith('DF.') or cname == 'MF',
             })
     return children
+
+
+def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1):
+    chunk = bytes.fromhex(chunk_hex)
+    udh = b''
+    if chunk_total > 1:
+        udh = bytes([0x00, 0x03, 0x01, chunk_total, chunk_num])
+    tp_ud = udh + chunk
+    first_byte = 0x40 if udh else 0x00
+    tpdu = bytes([first_byte, 0x00, 0x00, 0x7F, 0x04, len(tp_ud)]) + tp_ud
+    return tpdu.hex()
+
+
+def _send_envelope(tpdu_hex, scc):
+    from pySim.ts_31_102 import SMSPPDownload
+    from pySim.cat import DeviceIdentities
+    from osmocom.tlv import COMPR_TLV_IE
+    from pySim.utils import b2h
+
+    class RawTpdu(COMPR_TLV_IE, tag=0x8B):
+        comprehension = False
+        def __init__(self, data_hex):
+            super().__init__()
+            self._raw = bytes.fromhex(data_hex)
+        def to_bytes(self, context={}):
+            return self._raw
+
+    class Address(COMPR_TLV_IE, tag=0x86):
+        comprehension = False
+        def __init__(self):
+            super().__init__()
+            self._raw = bytes([0x80, 0xF0])
+        def to_bytes(self, context={}):
+            return self._raw
+
+    dev_ids = DeviceIdentities(decoded={'source_dev_id': 'network', 'dest_dev_id': 'uicc'})
+    address = Address()
+    raw_tpdu = RawTpdu(tpdu_hex)
+    sms_dl = SMSPPDownload(children=[dev_ids, address, raw_tpdu])
+    data, sw = scc.envelope(b2h(sms_dl.to_tlv()))
+    return data, sw
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -524,6 +568,43 @@ class PysimHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 err = {'exists': False, 'error': str(e)}
                 self._send_json(err, 404)
+                self._log_resp(err)
+        elif self.path == '/api/send-ota':
+            app = self.server.app
+            if not app:
+                self._send_json({'error': _err('app_not_init', lang)}, 503)
+                self._log_resp({'error': _err('app_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            sp = body.get('sp', '')
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            try:
+                sp_bytes = bytes.fromhex(sp)
+                max_chunk = 130
+                chunks = [sp_bytes[i:i+max_chunk] for i in range(0, len(sp_bytes), max_chunk)]
+                total = len(chunks)
+                last_data = None
+                last_sw = None
+                for i, chunk in enumerate(chunks):
+                    tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1) if total > 1 else _build_sms_tpdu(sp)
+                    data, sw = _send_envelope(tpdu, scc)
+                    last_data = data
+                    last_sw = sw
+                    if sw != '9000' and not sw.startswith('91'):
+                        resp = {'success': False, 'sw': sw, 'error': 'ENVELOPE failed at chunk %d' % (i + 1)}
+                        break
+                else:
+                    resp = {'success': True, 'sw': last_sw, 'response_data': last_data.hex() if last_data else None}
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 500)
                 self._log_resp(err)
         else:
             self._send_json({'error': _err('not_found', lang)}, 404)
