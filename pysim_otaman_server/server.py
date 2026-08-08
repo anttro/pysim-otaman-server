@@ -368,7 +368,7 @@ def _parse_select_item(raw):
                     _title = _decode_stk_text(val)
                 except Exception:
                     pass
-            elif tag == 0x8F and tlen >= 2:
+            elif tag in (0x8F, 0x0F) and tlen >= 2:
                 items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
     return items
 
