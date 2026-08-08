@@ -10,7 +10,7 @@ from io import StringIO
 from pySim.transport import ApduTracer
 
 
-VERSION = '1.2.2'
+VERSION = '1.3.0'
 
 
 class StderrApduTracer(ApduTracer):
@@ -156,12 +156,18 @@ def _encode_scts(dt=None):
     ])
 
 
-def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345'):
+def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', include_cpi=True):
     chunk = bytes.fromhex(chunk_hex)
+    # TS 23.040 UDH: first octet is UDHL, then the information elements.
+    # TS 31.115 4.2/4.3: the OTA CPI is UDH IEIa='70' with IEIDLa='00'.
     udh = b''
     if chunk_total > 1:
         udh = bytes([0x00, 0x03, 0x01, chunk_total, chunk_num])
-    tp_ud = udh + chunk
+        if chunk_num == 1 and include_cpi:
+            udh += bytes([0x70, 0x00])
+    elif include_cpi:
+        udh = bytes([0x70, 0x00])
+    tp_ud = (bytes([len(udh)]) + udh + chunk) if udh else chunk
     first_byte = 0x44 if udh else 0x04
     tpdu = bytes([first_byte]) + _encode_sms_oa(oa_number) + bytes([0x7F, 0xF6]) + _encode_scts() + bytes([len(tp_ud)]) + tp_ud
     return tpdu.hex()
@@ -195,6 +201,84 @@ def _send_envelope(tpdu_hex, scc):
     sms_dl = SMSPPDownload(children=[dev_ids, address, raw_tpdu])
     data, sw = scc.envelope(b2h(sms_dl.to_tlv()))
     return data, sw
+
+
+# TS 03.48 / TS 102 225 SPI coding
+_RC_CC_DS = {0: 'no_rc_cc_ds', 1: 'rc', 2: 'cc', 3: 'ds'}
+_CNTR_REQ = {0: 'no_counter', 1: 'counter_no_replay_or_seq', 2: 'counter_must_be_higher', 3: 'counter_must_be_lower'}
+_POR_REQ = {0: 'no_por', 1: 'por_required', 2: 'por_only_when_error'}
+_CRYPT_ALGO = {1: 'single_des', 5: 'triple_des_cbc2', 9: 'triple_des_cbc3', 2: 'aes_cbc'}
+_AUTH_ALGO = {1: 'single_des', 5: 'triple_des_cbc2', 9: 'triple_des_cbc3', 2: 'aes_cmac'}
+
+
+def _spi_from_bytes(spi1, spi2):
+    return {
+        'counter': _CNTR_REQ[(spi1 >> 3) & 0x03],
+        'ciphering': bool(spi1 & 0x04),
+        'rc_cc_ds': _RC_CC_DS[spi1 & 0x03],
+        'por_in_submit': bool(spi2 & 0x20),
+        'por_shall_be_ciphered': bool(spi2 & 0x10),
+        'por_rc_cc_ds': _RC_CC_DS[(spi2 >> 2) & 0x03],
+        'por': _POR_REQ[spi2 & 0x03],
+    }
+
+
+def _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex):
+    from pySim.ota import OtaKeyset
+    from osmocom.utils import h2b
+    kic_b = int(kic, 16)
+    kid_b = int(kid, 16)
+    algo_crypt = _CRYPT_ALGO.get(kic_b & 0x0F)
+    algo_auth = _AUTH_ALGO.get(kid_b & 0x0F)
+    if algo_crypt is None:
+        raise ValueError('Unsupported KIc algorithm nibble %02X' % (kic_b & 0x0F))
+    if algo_auth is None:
+        raise ValueError('Unsupported KID algorithm nibble %02X' % (kid_b & 0x0F))
+    return OtaKeyset(algo_crypt=algo_crypt, kic_idx=kic_b >> 4, kic=h2b(kic_key_hex),
+                     algo_auth=algo_auth, kid_idx=kid_b >> 4, kid=h2b(kid_key_hex),
+                     cntr=int(cntr_hex, 16) if cntr_hex else 0)
+
+
+def _ota_reference(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex, kic_key_hex, kid_key_hex):
+    from pySim.ota import OtaDialectSms
+    from osmocom.utils import h2b, b2h
+    otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
+    spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
+    out = OtaDialectSms().encode_cmd(otak, h2b(tar_hex), spi, h2b(apdu_hex))
+    if not spi['ciphering'] and spi['rc_cc_ds'] != 'no_rc_cc_ds':
+        # pySim drops the CPL octets from its unciphered output; re-add them
+        # (they are included in the RC/CC/DS calculation) per TS 31.115 4.2.
+        cpl = len(out) - 2
+        out = cpl.to_bytes(2, 'big') + out
+    return b2h(out), spi
+
+
+def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, response_hex):
+    from pySim.ota import OtaDialectSms, OtaCheckError
+    from osmocom.utils import h2b, b2h
+    if not response_hex:
+        return None
+    otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
+    spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
+    data = h2b(response_hex)
+    if not data or data[0] != 0x02:
+        return None
+    try:
+        res, dec = OtaDialectSms().decode_resp(otak, spi, data)
+    except (OtaCheckError, ValueError, KeyError):
+        return None
+    out = {
+        'response_status': str(res['response_status']),
+        'tar': res['tar'].hex().upper(),
+        'pcntr': res['pcntr'],
+    }
+    if dec is not None:
+        out['decoded'] = {
+            'number_of_commands': dec['number_of_commands'],
+            'last_status_word': str(dec['last_status_word']),
+            'last_response_data': str(dec['last_response_data']),
+        }
+    return out
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -348,7 +432,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             try:
                 data, sw = scc.send_apdu_checksw(apdu_hex)
                 elapsed = int((time.time() - t0) * 1000)
-                resp = {'response': data.hex(), 'sw': sw}
+                resp = {'response': data, 'sw': sw}
                 sys.stderr.write("APDU: %s → SW: %s (%dms)\n" % (apdu_hex, sw, elapsed))
                 self._send_json(resp)
                 self._log_resp(resp)
@@ -612,6 +696,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': _err('reader_not_init', lang)}, 503)
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
+            include_cpi = body.get('includeCpi', True)
             try:
                 sp_bytes = bytes.fromhex(sp)
                 max_chunk = 130
@@ -620,7 +705,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 last_data = None
                 last_sw = None
                 for i, chunk in enumerate(chunks):
-                    tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa) if total > 1 else _build_sms_tpdu(sp, oa_number=self.server.sms_oa)
+                    tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa,
+                                           include_cpi=include_cpi) if total > 1 else _build_sms_tpdu(sp, oa_number=self.server.sms_oa,
+                                                                                                        include_cpi=include_cpi)
                     data, sw = _send_envelope(tpdu, scc)
                     last_data = data
                     last_sw = sw
@@ -628,7 +715,36 @@ class PysimHandler(BaseHTTPRequestHandler):
                         resp = {'success': False, 'sw': sw, 'error': 'ENVELOPE failed at chunk %d' % (i + 1)}
                         break
                 else:
-                    resp = {'success': True, 'sw': last_sw, 'response_data': last_data.hex() if last_data else None}
+                    resp = {'success': True, 'sw': last_sw, 'response_data': last_data if last_data else None}
+                    por = _decode_por(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
+                                      body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
+                                      body.get('kidKey', ''), resp['response_data'])
+                    if por:
+                        resp['por'] = por
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 500)
+                self._log_resp(err)
+        elif self.path == '/api/sp-verify':
+            body = self._read_body()
+            self._log_req(body)
+            try:
+                ref, spi = _ota_reference(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
+                                          body.get('kid', ''), body.get('tar', ''), body.get('cntr', ''),
+                                          body.get('apdu', ''), body.get('kicKey', ''), body.get('kidKey', ''))
+                js_sp = (body.get('sp', '') or '').replace(' ', '').lower()
+                ref_l = ref.lower()
+                diffs = []
+                if js_sp != ref_l:
+                    n = min(len(js_sp), len(ref_l))
+                    for i in range(0, n, 2):
+                        if js_sp[i:i+2] != ref_l[i:i+2]:
+                            diffs.append({'offset': i // 2, 'js': js_sp[i:i+2], 'ref': ref_l[i:i+2]})
+                    if len(js_sp) != len(ref_l):
+                        diffs.append({'offset': n // 2, 'js': js_sp[n:], 'ref': ref_l[n:]})
+                resp = {'js_sp': js_sp, 'py_sp': ref_l, 'match': js_sp == ref_l, 'diffs': diffs[:50], 'spi': spi}
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
