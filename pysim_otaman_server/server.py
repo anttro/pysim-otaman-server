@@ -4,12 +4,13 @@ import os
 import time
 import traceback
 import re
+from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import StringIO
 from pySim.transport import ApduTracer
 
 
-VERSION = '1.2.0'
+VERSION = '1.2.1'
 
 
 class StderrApduTracer(ApduTracer):
@@ -135,6 +136,26 @@ def _encode_sms_oa(number):
     return oa
 
 
+def _bcd_pair(value):
+    return ((value % 10) << 4) | ((value // 10) % 10)
+
+
+def _encode_scts(dt=None):
+    dt = dt or datetime.now().astimezone()
+    offset = dt.utcoffset() or timedelta()
+    quarters = int(offset.total_seconds() // 900)
+    tz = _bcd_pair(abs(quarters)) | (0x08 if quarters < 0 else 0x00)
+    return bytes([
+        _bcd_pair(dt.year % 100),
+        _bcd_pair(dt.month),
+        _bcd_pair(dt.day),
+        _bcd_pair(dt.hour),
+        _bcd_pair(dt.minute),
+        _bcd_pair(dt.second),
+        tz,
+    ])
+
+
 def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345'):
     chunk = bytes.fromhex(chunk_hex)
     udh = b''
@@ -142,7 +163,7 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345'):
         udh = bytes([0x00, 0x03, 0x01, chunk_total, chunk_num])
     tp_ud = udh + chunk
     first_byte = 0x40 if udh else 0x00
-    tpdu = bytes([first_byte]) + _encode_sms_oa(oa_number) + bytes([0x7F, 0x04, len(tp_ud)]) + tp_ud
+    tpdu = bytes([first_byte]) + _encode_sms_oa(oa_number) + bytes([0x7F, 0xF6]) + _encode_scts() + bytes([len(tp_ud)]) + tp_ud
     return tpdu.hex()
 
 
