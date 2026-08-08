@@ -33,6 +33,7 @@ def main():
     scc = None
     card = None
     rs = None
+    sim_menu = None
     try:
         kwargs = {}
         if opts.apdu_trace:
@@ -46,6 +47,26 @@ def main():
         if tp_sw.startswith('91'):
             fetch_len = int(tp_sw[2:], 16)
             fdata, fsw = scc._tp.send_apdu('80120000%02x' % fetch_len)
+            if fdata:
+                raw = bytes.fromhex(fdata)
+                if raw[0] == 0xD0:
+                    off = 2
+                    menu = None
+                    items = []
+                    while off < len(raw) - 1:
+                        tag, tlen = raw[off], raw[off + 1]
+                        val = raw[off + 2: off + 2 + tlen]
+                        off += 2 + tlen
+                        if tag == 0x81 and tlen >= 3 and val[1] == 0x25:
+                            menu = {'command_number': val[0], 'items': items}
+                        elif tag == 0x05 and tlen >= 1 and menu is not None:
+                            try:
+                                menu['title'] = val.decode('ascii')
+                            except UnicodeDecodeError:
+                                menu['title'] = val.hex()
+                        elif tag == 0x8F and tlen >= 2:
+                            items.append({'id': val[0], 'text_raw': val[1:].hex()})
+                    sim_menu = menu
             tr_tlv = bytes([0x81, 0x03, 0x01, 0x00, 0x00,
                             0x82, 0x02, 0x83, 0x81,
                             0x83, 0x02, 0x00, 0x00])
@@ -89,6 +110,7 @@ def main():
     server.sms_oa = opts.sms_oa
     server.sms_sc = opts.sms_sm_sc
     server.log_requests = opts.log_requests
+    server.sim_menu = sim_menu
     print("─" * 70)
     print("  pysim-otaman-server v%s listening on http://%s:%s" % (VERSION, opts.http_host, opts.http_port))
     print("  Now open OTAMan and click Connect in the pySim tab!")
