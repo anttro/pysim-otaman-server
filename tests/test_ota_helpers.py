@@ -93,25 +93,25 @@ class TestBuildSmsTpdu(unittest.TestCase):
     def test_single_message_with_cpi(self):
         self.assertEqual(
             self._build(self.CHUNK, include_cpi=True),
-            '4005912143f57ff6240512151730002502700000201506091515b00000'
+            '4005812143f57ff6240512151730002502700000201506091515b00000'
             'c08f58c38860acb3a362fffe670ad13759a2a6b4c1a91116')
 
     def test_single_message_without_cpi(self):
         self.assertEqual(
             self._build(self.CHUNK, include_cpi=False),
-            '0405912143f57ff6240512151730002200201506091515b00000'
+            '0405812143f57ff6240512151730002200201506091515b00000'
             'c08f58c38860acb3a362fffe670ad13759a2a6b4c1a91116')
 
     def test_first_chunk_has_cpi(self):
         self.assertEqual(
             self._build(self.CHUNK, chunk_total=3, chunk_num=1, include_cpi=True),
-            '4405912143f57ff6240512151730002a070003010301700000201506091515b00000'
+            '4405812143f57ff6240512151730002a070003010301700000201506091515b00000'
             'c08f58c38860acb3a362fffe670ad13759a2a6b4c1a91116')
 
     def test_later_chunk_concat_only(self):
         self.assertEqual(
             self._build(self.CHUNK, chunk_total=3, chunk_num=2, include_cpi=True),
-            '4405912143f57ff6240512151730002805000301030200201506091515b00000'
+            '4405812143f57ff6240512151730002805000301030200201506091515b00000'
             'c08f58c38860acb3a362fffe670ad13759a2a6b4c1a91116')
 
 

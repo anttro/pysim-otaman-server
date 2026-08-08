@@ -132,7 +132,7 @@ def _parse_tree_output(output):
 
 def _encode_sms_oa(number):
     digits = [int(c) for c in number if c.isdigit()]
-    oa = bytes([len(digits), 0x91])
+    oa = bytes([len(digits), 0x81])
     for i in range(0, len(digits), 2):
         first = digits[i]
         second = digits[i + 1] if i + 1 < len(digits) else 0xF
@@ -390,13 +390,13 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
         if action != 'pause':
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x82, 0x02, dev_dst, dev_src,
+                                0x02, 0x02, dev_dst, dev_src,
                                 0x84, 0x02, 0x01, 0x1E,
-                                0x83, 0x02, 0x00, 0x00])
+                                0x03, 0x01, 0x00])
             else:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x82, 0x02, dev_dst, dev_src,
-                                0x83, 0x02, 0x00, 0x00])
+                                0x02, 0x02, dev_dst, dev_src,
+                                0x03, 0x01, 0x00])
             tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
             sw = tr_rv[1]
             if action == 'exit':
