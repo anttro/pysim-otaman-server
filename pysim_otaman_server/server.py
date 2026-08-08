@@ -168,7 +168,7 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', in
     elif include_cpi:
         udh = bytes([0x70, 0x00])
     tp_ud = (bytes([len(udh)]) + udh + chunk) if udh else chunk
-    first_byte = 0x44 if udh else 0x04
+    first_byte = 0x44 if udh and chunk_total > 1 else (0x40 if udh else 0x04)
     tpdu = bytes([first_byte]) + _encode_sms_oa(oa_number) + bytes([0x7F, 0xF6]) + _encode_scts() + bytes([len(tp_ud)]) + tp_ud
     return tpdu.hex()
 

@@ -93,7 +93,7 @@ class TestBuildSmsTpdu(unittest.TestCase):
     def test_single_message_with_cpi(self):
         self.assertEqual(
             self._build(self.CHUNK, include_cpi=True),
-            '4405912143f57ff6240512151730002502700000201506091515b00000'
+            '4005912143f57ff6240512151730002502700000201506091515b00000'
             'c08f58c38860acb3a362fffe670ad13759a2a6b4c1a91116')
 
     def test_single_message_without_cpi(self):
