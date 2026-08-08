@@ -93,7 +93,7 @@ Connect a PC/SC reader with a SIM card, then open [http://127.0.0.1:8080](http:/
 | `--log-requests` | Log request/response payloads to stderr |
 | `--sms-oa` | TP-Originating-Address in SMS-DELIVER TPDU (default: `12345`) |
 | `--sms-sm-sc` | SM-SC address for PoR-in-submit routing (default: `12345678912`) |
-| `--terminal-profile` | TERMINAL PROFILE payload hex sent at startup (default: all-FF, 32 bytes) |
+| `--terminal-profile` | TERMINAL PROFILE payload hex sent at startup (default: 10-byte GSM profile with SMS-PP download) |
 
 ### Reader selection
 

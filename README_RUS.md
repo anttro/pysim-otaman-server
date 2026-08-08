@@ -93,7 +93,7 @@ pysim-otaman-server --http-port 8080
 | `--log-requests` | Логировать запросы и ответы |
 | `--sms-oa` | TP-Originating-Address в SMS-DELIVER TPDU (по умолчанию: `12345`) |
 | `--sms-sm-sc` | SM-SC адрес для PoR-in-submit маршрутизации (по умолчанию: `12345678912`) |
-| `--terminal-profile` | TERMINAL PROFILE в hex, отправляемый при старте (по умолчанию: все FF, 32 байта) |
+| `--terminal-profile` | TERMINAL PROFILE в hex, отправляемый при старте (по умолчанию: 10-байтный GSM профиль с SMS-PP download) |
 
 ### Выбор считывателя
 
