@@ -34,8 +34,8 @@ def main():
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
     parser.add_argument('--sms-sm-sc', default='12345678912', metavar='DIGITS',
                         help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345678912)')
-    parser.add_argument('--terminal-profile', default='ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', metavar='HEX',
-                        help='TERMINAL PROFILE payload (default: all-FF, 32 bytes)')
+    parser.add_argument('--terminal-profile', default='7FFFFFFF7F0000CF02', metavar='HEX',
+                        help='TERMINAL PROFILE payload (default: 10-byte GSM profile with SMS-PP download)')
 
     opts = parser.parse_args()
     sl = None
