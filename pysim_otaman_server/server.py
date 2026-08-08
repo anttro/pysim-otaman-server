@@ -7,10 +7,10 @@ import re
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import StringIO
-from pySim.transport import ApduTracer
+from pySim.transport import ApduTracer, ProactiveHandler
 
 
-VERSION = '1.3.1'
+VERSION = '1.3.2'
 
 
 class StderrApduTracer(ApduTracer):
@@ -284,6 +284,26 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
             'last_response_data': str(dec['last_response_data']),
         }
     return out
+
+
+class PoRSubmitHandler(ProactiveHandler):
+    """Captures the SMS-SUBMIT TPDU from a SendShortMessage proactive command
+    issued by the SIM in response to PoR-in-submit (SPI2 bit 0x20)."""
+    def __init__(self):
+        super().__init__()
+        self.submit_tpdu_hex = None
+
+    def receive_fetch_raw(self, pcmd, parsed):
+        from pySim.cat import SendShortMessage, SMS_TPDU
+        from osmocom.utils import b2h
+        if isinstance(parsed, SendShortMessage):
+            for child in pcmd.children:
+                if isinstance(child, SMS_TPDU):
+                    tpdu = child.decoded.get('tpdu') if isinstance(child.decoded, dict) else child.decoded
+                    if tpdu:
+                        self.submit_tpdu_hex = b2h(tpdu)
+                    break
+        return self.prepare_response(pcmd, 'performed_successfully')
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -704,28 +724,46 @@ class PysimHandler(BaseHTTPRequestHandler):
             include_cpi = body.get('includeCpi', True)
             try:
                 sp_bytes = bytes.fromhex(sp)
-                max_chunk = 130
-                chunks = [sp_bytes[i:i+max_chunk] for i in range(0, len(sp_bytes), max_chunk)]
-                total = len(chunks)
-                last_data = None
-                last_sw = None
-                for i, chunk in enumerate(chunks):
-                    tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa,
-                                           include_cpi=include_cpi) if total > 1 else _build_sms_tpdu(sp, oa_number=self.server.sms_oa,
-                                                                                                        include_cpi=include_cpi)
-                    data, sw = _send_envelope(tpdu, scc)
-                    last_data = data
-                    last_sw = sw
-                    if sw != '9000' and not sw.startswith('91'):
-                        resp = {'success': False, 'sw': sw, 'error': 'ENVELOPE failed at chunk %d' % (i + 1)}
-                        break
-                else:
-                    resp = {'success': True, 'sw': last_sw, 'response_data': last_data if last_data else None}
-                    por = _decode_por(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
-                                      body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
-                                      body.get('kidKey', ''), resp['response_data'])
-                    if por:
-                        resp['por'] = por
+                spi2_val = int(body.get('spi2', '00'), 16)
+                por_in_submit = bool(spi2_val & 0x20)
+                submit_handler = None
+                old_proactive = None
+                if por_in_submit and hasattr(scc, '_tp'):
+                    submit_handler = PoRSubmitHandler()
+                    old_proactive = scc._tp.proactive_handler
+                    scc._tp.proactive_handler = submit_handler
+                try:
+                    max_chunk = 130
+                    chunks = [sp_bytes[i:i+max_chunk] for i in range(0, len(sp_bytes), max_chunk)]
+                    total = len(chunks)
+                    last_data = None
+                    last_sw = None
+                    for i, chunk in enumerate(chunks):
+                        tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa,
+                                               include_cpi=include_cpi) if total > 1 else _build_sms_tpdu(sp, oa_number=self.server.sms_oa,
+                                                                                                            include_cpi=include_cpi)
+                        data, sw = _send_envelope(tpdu, scc)
+                        last_data = data
+                        last_sw = sw
+                        if sw != '9000' and not sw.startswith('91'):
+                            resp = {'success': False, 'sw': sw, 'error': 'ENVELOPE failed at chunk %d' % (i + 1)}
+                            break
+                    else:
+                        resp = {'success': True, 'sw': last_sw, 'response_data': last_data if last_data else None}
+                        por_hex = resp['response_data']
+                        if submit_handler and submit_handler.submit_tpdu_hex:
+                            tpdu_b = bytes.fromhex(submit_handler.submit_tpdu_hex)
+                            idx = tpdu_b.find(b'\x02\x71\x00')
+                            if idx >= 0:
+                                por_hex = tpdu_b[idx:].hex()
+                        por = _decode_por(body.get('spi1', ''), body.get('spi2', ''), body.get('kic', ''),
+                                          body.get('kid', ''), body.get('cntr', ''), body.get('kicKey', ''),
+                                          body.get('kidKey', ''), por_hex)
+                        if por:
+                            resp['por'] = por
+                finally:
+                    if submit_handler and hasattr(scc, '_tp'):
+                        scc._tp.proactive_handler = old_proactive
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
