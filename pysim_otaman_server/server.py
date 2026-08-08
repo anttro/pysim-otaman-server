@@ -224,7 +224,8 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
             tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                             0x82, 0x02, dev_dst, dev_src,
                             0x83, 0x02, 0x00, 0x00])
-            scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+            tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+            sw = tr_rv[1]
         data, sw = '', '9000'
     return data, sw
 

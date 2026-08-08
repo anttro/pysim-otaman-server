@@ -47,32 +47,39 @@ def main():
         tp_hex = opts.terminal_profile
         tp_data, tp_sw = scc._tp.send_apdu('80100000%02x%s' % (len(tp_hex) // 2, tp_hex))
         if tp_sw.startswith('91'):
-            fetch_len = int(tp_sw[2:], 16)
-            fdata, fsw = scc._tp.send_apdu('80120000%02x' % fetch_len)
-            if fdata:
-                raw = bytes.fromhex(fdata)
-                if raw[0] == 0xD0:
-                    off = 2
-                    menu = None
-                    items = []
-                    while off < len(raw) - 1:
-                        tag, tlen = raw[off], raw[off + 1]
-                        val = raw[off + 2: off + 2 + tlen]
-                        off += 2 + tlen
-                        if tag == 0x81 and tlen >= 3 and val[1] == 0x25:
-                            menu = {'command_number': val[0], 'items': items}
-                        elif tag == 0x05 and tlen >= 1 and menu is not None:
-                            try:
-                                menu['title'] = val.decode('ascii')
-                            except UnicodeDecodeError:
-                                menu['title'] = val.hex()
-                        elif tag == 0x8F and tlen >= 2:
-                            items.append({'id': val[0], 'text_raw': val[1:].hex()})
-                    sim_menu = menu
-            tr_tlv = bytes([0x81, 0x03, 0x01, 0x00, 0x00,
-                            0x82, 0x02, 0x83, 0x81,
-                            0x83, 0x02, 0x00, 0x00])
-            scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+            sw = tp_sw
+            while sw.startswith('91'):
+                fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0xff
+                fdata, sw = scc._tp.send_apdu('80120000%02x' % fetch_len)
+                cmd_num, cmd_type = 1, 0
+                if fdata:
+                    raw = bytes.fromhex(fdata)
+                    if raw[0] == 0xD0:
+                        off = 2
+                        menu = None
+                        items = []
+                        while off < len(raw) - 1:
+                            tag, tlen = raw[off], raw[off + 1]
+                            val = raw[off + 2: off + 2 + tlen]
+                            off += 2 + tlen
+                            if tag == 0x81 and tlen >= 3:
+                                cmd_num, cmd_type = val[0], val[1]
+                                if cmd_type == 0x25:
+                                    menu = {'command_number': cmd_num, 'items': items}
+                            elif tag == 0x05 and tlen >= 1 and menu is not None:
+                                try:
+                                    menu['title'] = val.decode('ascii')
+                                except UnicodeDecodeError:
+                                    menu['title'] = val.hex()
+                            elif tag == 0x8F and tlen >= 2:
+                                items.append({'id': val[0], 'text_raw': val[1:].hex()})
+                        if menu:
+                            sim_menu = menu
+                tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+                                0x82, 0x02, 0x83, 0x81,
+                                0x83, 0x02, 0x00, 0x00])
+                tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+                sw = tr_rv[1]
     except Exception:
         print("Warning: reader/card initialization failed:", file=sys.stderr)
         traceback.print_exc()
