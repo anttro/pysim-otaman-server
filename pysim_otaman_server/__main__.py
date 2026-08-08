@@ -41,7 +41,15 @@ def main():
         scc = SimCardCommands(sl)
         sl.wait_for_card(3)
         rs, card = mod.init_card(sl, opts.skip_card_init)
-        scc.terminal_profile('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
+        tp_hex = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        tp_data, tp_sw = scc._tp.send_apdu('80100000%02x%s' % (len(tp_hex) // 2, tp_hex))
+        if tp_sw.startswith('91'):
+            fetch_len = int(tp_sw[2:], 16)
+            fdata, fsw = scc._tp.send_apdu('80120000%02x' % fetch_len)
+            tr_tlv = bytes([0x81, 0x03, 0x01, 0x00, 0x00,
+                            0x82, 0x02, 0x83, 0x81,
+                            0x83, 0x02, 0x00, 0x00])
+            scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
     except Exception:
         print("Warning: reader/card initialization failed:", file=sys.stderr)
         traceback.print_exc()
