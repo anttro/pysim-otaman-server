@@ -14,7 +14,7 @@ from construct import GreedyBytes
 from osmocom.construct import GsmOrUcs2Adapter
 
 
-VERSION = '1.3.2'
+VERSION = '1.4.0'
 
 
 class StderrApduTracer(ApduTracer):
