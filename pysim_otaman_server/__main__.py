@@ -1,12 +1,19 @@
 import argparse
+import logging
+import os
 import sys
 import traceback
 from http.server import HTTPServer
 from pySim.card_handler import CardHandler
 from pySim.commands import SimCardCommands
+from pySim.log import PySimLogger
 
 from .shell import load_pysim_app
 from .server import PysimHandler, StderrApduTracer, VERSION
+
+
+def _log_stdout(msg):
+    os.write(1, (msg + '\n').encode())
 
 
 def main():
@@ -40,6 +47,26 @@ def main():
         print("Warning: PysimApp creation failed:", file=sys.stderr)
         traceback.print_exc()
         app = None
+    if app is not None and opts.apdu_trace:
+        # PysimApp.__init__ routes PySimLogger through app.poutput() (app.stdout)
+        # and drops the root level to INFO. Re-route pysim's own APDU trace logging
+        # directly to fd 1 so it survives the app.stdout/StringIO redirection in the
+        # HTTP handlers and the INFO level suppression.
+        PySimLogger.setup(print_callback=_log_stdout)
+        PySimLogger.set_level(logging.DEBUG)
+        # PysimApp.__init__ and every `equip` wipe the transport apdu_tracer
+        # (_onchange_apdu_trace sets it to None). Re-attach our tracer and make
+        # sure it stays attached across equip/re-equip.
+        tracer = StderrApduTracer()
+        def _reattach_tracer():
+            if app.card:
+                app.card._scc._tp.apdu_tracer = tracer
+        _reattach_tracer()
+        orig_onchange = app._onchange_apdu_trace
+        def _onchange_apdu_trace(param_name, old, new):
+            orig_onchange(param_name, old, new)
+            _reattach_tracer()
+        app._onchange_apdu_trace = _onchange_apdu_trace
     server = HTTPServer((opts.http_host, opts.http_port), PysimHandler)
     server.sl = sl
     server.scc = scc
