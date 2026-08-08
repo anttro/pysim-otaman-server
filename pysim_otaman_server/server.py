@@ -403,6 +403,59 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
                 return sw
 
 
+def _send_terminal_profile(scc, tp_hex):
+    tp_data, tp_sw = scc._tp.send_apdu('80100000%02x%s' % (len(tp_hex) // 2, tp_hex))
+    sim_menu = None
+    if tp_sw.startswith('91'):
+        sw = tp_sw
+        while sw.startswith('91'):
+            fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0xff
+            fdata, sw = scc._tp.send_apdu('80120000%02x' % fetch_len)
+            cmd_num, cmd_type = 1, 0
+            dev_src, dev_dst = 0x83, 0x81
+            if fdata:
+                raw = bytes.fromhex(fdata)
+                if raw[0] == 0xD0:
+                    off = 2
+                    menu = None
+                    items = []
+                    while off < len(raw) - 1:
+                        tag, tlen = raw[off], raw[off + 1]
+                        val = raw[off + 2: off + 2 + tlen]
+                        off += 2 + tlen
+                        if tag == 0x81 and tlen >= 3:
+                            cmd_num, cmd_type = val[0], val[1]
+                            if cmd_type == 0x25:
+                                menu = {'command_number': cmd_num, 'items': items}
+                        elif tag == 0x82 and tlen >= 2:
+                            dev_src, dev_dst = val[0], val[1]
+                        elif tag == 0x05 and tlen >= 1 and menu is not None:
+                            try:
+                                menu['title'] = _STK_DECODE._decode(val, {}, 'stk_title')
+                            except Exception:
+                                menu['title'] = val.hex()
+                        elif tag == 0x8F and tlen >= 2:
+                            try:
+                                txt = _STK_DECODE._decode(val[1:], {}, 'stk_item')
+                            except Exception:
+                                txt = val[1:].hex()
+                            items.append({'id': val[0], 'text': txt})
+                    if menu:
+                        sim_menu = menu
+            if cmd_type == 0x03:
+                tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+                                0x02, 0x02, dev_dst, dev_src,
+                                0x84, 0x02, 0x01, 0x1E,
+                                0x03, 0x01, 0x00])
+            else:
+                tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+                                0x02, 0x02, dev_dst, dev_src,
+                                0x03, 0x01, 0x00])
+            tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+            sw = tr_rv[1]
+    return sim_menu
+
+
 class PysimHandler(BaseHTTPRequestHandler):
     def _send_json(self, data, status=200):
         self.send_response(status)
@@ -548,6 +601,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr = old_stderr
             elapsed = int((time.time() - t0) * 1000)
             status = 'OK' if not output or 'not a recognized command' not in output else 'ERROR'
+            if str(cmd).strip().startswith('equip') and self.server.scc and self.server.terminal_profile:
+                self.server.sim_menu = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
             sys.stderr.write("CMD: %s → %s (%dms)\n" % (cmd, status, elapsed))
             resp = {'output': output, 'stop': bool(stop)}
             self._send_json(resp)
