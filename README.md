@@ -87,7 +87,8 @@ Connect a PC/SC reader with a SIM card, then open [http://127.0.0.1:8080](http:/
 | `-d` / `--device` | Serial device path |
 | `-b` / `--baud` | Serial baud rate |
 | `--modem-device` | Modem device path |
-| `--skip-card-init` | Skip card initialization |
+| `--skip-card-init` | Skip card initialization (deprecated — use `--no-card-init`) |
+| `--no-card-init` | Skip pysim card initialization to preserve CAT session; no file manager |
 | `--apdu-trace` | Log APDU-level traces to stderr |
 | `--log-requests` | Log request/response payloads to stderr |
 | `--sms-oa` | TP-Originating-Address in SMS-DELIVER TPDU (default: `12345`) |

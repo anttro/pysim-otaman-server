@@ -87,7 +87,8 @@ pysim-otaman-server --http-port 8080
 | `-d` / `--device` | Путь к serial-устройству |
 | `-b` / `--baud` | Скорость serial-порта |
 | `--modem-device` | Путь к модему |
-| `--skip-card-init` | Пропустить инициализацию карты |
+| `--skip-card-init` | Пропустить инициализацию карты (устарело — используйте `--no-card-init`) |
+| `--no-card-init` | Пропустить инициализацию pysim для сохранения CAT-сессии; без файлового менеджера |
 | `--apdu-trace` | Логировать APDU-трассировку |
 | `--log-requests` | Логировать запросы и ответы |
 | `--sms-oa` | TP-Originating-Address в SMS-DELIVER TPDU (по умолчанию: `12345`) |
