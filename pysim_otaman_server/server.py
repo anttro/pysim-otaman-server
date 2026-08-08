@@ -291,6 +291,12 @@ class PoRSubmitHandler(ProactiveHandler):
     def receive_fetch_raw(self, pcmd, parsed):
         from pySim.cat import SendShortMessage, SMS_TPDU
         from osmocom.utils import b2h
+        import sys
+        print('DEBUG PoRSubmitHandler: parsed type =', type(parsed).__name__, file=sys.stderr)
+        for child in pcmd.children:
+            tag = getattr(type(child), 'tag', '?')
+            print('DEBUG PoRSubmitHandler: child type =', type(child).__name__, ' tag =', hex(tag) if isinstance(tag, int) else tag, file=sys.stderr)
+        sys.stderr.flush()
         if isinstance(parsed, SendShortMessage):
             for child in pcmd.children:
                 if isinstance(child, SMS_TPDU):
