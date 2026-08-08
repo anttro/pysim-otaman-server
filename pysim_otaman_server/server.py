@@ -173,9 +173,9 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', in
     return tpdu.hex()
 
 
-def _send_envelope(tpdu_hex, scc):
+def _send_envelope(tpdu_hex, scc, sm_sc='12345'):
     from pySim.ts_31_102 import SMSPPDownload
-    from pySim.cat import DeviceIdentities
+    from pySim.cat import DeviceIdentities, Address
     from osmocom.tlv import COMPR_TLV_IE
     from pySim.utils import b2h
 
@@ -187,16 +187,11 @@ def _send_envelope(tpdu_hex, scc):
         def to_bytes(self, context={}):
             return self._raw
 
-    class Address(COMPR_TLV_IE, tag=0x86):
-        comprehension = False
-        def __init__(self):
-            super().__init__()
-            self._raw = bytes([0x80, 0xF0])
-        def to_bytes(self, context={}):
-            return self._raw
+    address = Address()
+    oa_raw = _encode_sms_oa(sm_sc)
+    address.from_bytes(oa_raw[1:])
 
     dev_ids = DeviceIdentities(decoded={'source_dev_id': 'network', 'dest_dev_id': 'uicc'})
-    address = Address()
     raw_tpdu = RawTpdu(tpdu_hex)
     sms_dl = SMSPPDownload(children=[dev_ids, address, raw_tpdu])
     data, sw = scc.envelope(b2h(sms_dl.to_tlv()))
@@ -742,7 +737,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa,
                                                include_cpi=include_cpi) if total > 1 else _build_sms_tpdu(sp, oa_number=self.server.sms_oa,
                                                                                                             include_cpi=include_cpi)
-                        data, sw = _send_envelope(tpdu, scc)
+                        data, sw = _send_envelope(tpdu, scc, sm_sc=self.server.sms_sc)
                         last_data = data
                         last_sw = sw
                         if sw != '9000' and not sw.startswith('91'):

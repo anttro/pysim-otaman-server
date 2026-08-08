@@ -25,6 +25,8 @@ def main():
     parser.add_argument('--log-requests', action='store_true', default=False, help='Log request/response payloads to stderr')
     parser.add_argument('--sms-oa', default='12345', metavar='DIGITS',
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
+    parser.add_argument('--sms-sm-sc', default='12345', metavar='DIGITS',
+                        help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345)')
 
     opts = parser.parse_args()
     sl = None
@@ -76,6 +78,7 @@ def main():
     server.rs = rs
     server.app = app
     server.sms_oa = opts.sms_oa
+    server.sms_sc = opts.sms_sm_sc
     server.log_requests = opts.log_requests
     print("─" * 70)
     print("  pysim-otaman-server v%s listening on http://%s:%s" % (VERSION, opts.http_host, opts.http_port))
