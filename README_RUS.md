@@ -90,6 +90,9 @@ pysim-otaman-server --http-port 8080
 | `--skip-card-init` | Пропустить инициализацию карты |
 | `--apdu-trace` | Логировать APDU-трассировку |
 | `--log-requests` | Логировать запросы и ответы |
+| `--sms-oa` | TP-Originating-Address в SMS-DELIVER TPDU (по умолчанию: `12345`) |
+| `--sms-sm-sc` | SM-SC адрес для PoR-in-submit маршрутизации (по умолчанию: `12345678912`) |
+| `--terminal-profile` | TERMINAL PROFILE в hex, отправляемый при старте (по умолчанию: все FF, 32 байта) |
 
 ### Выбор считывателя
 
@@ -123,6 +126,64 @@ sudo usermod -a -G pcscd $USER   # затем выйти и зайти зано�
 ### "Access denied" при установке пакетов
 
 Скрипт установки использует виртуальное окружение (`.venv/`) — права root не требуются.
+
+## SCP80 OTA
+
+Сервер поддерживает отправку OTA-команд на SIM/USIM/UICC карты по протоколу
+SCP80 (ETSI TS 102 225, 3GPP TS 31.115) через SMS-PP-DOWNLOAD ENVELOPE
+с использованием PC/SC считывателя.
+
+### Обзор
+
+1. **Сгенерировать защищённый пакет** во вкладке *Secured Packet* PWA OTAMan —
+   указать ключи KIc/KID, TAR, счётчик, SPI и APDU.
+2. **Сверить** пакет с эталоном pySim через API `sp-verify` или кнопку
+   *Verify vs pySim* в PWA.
+3. **Отправить** через `/api/send-ota`. Сервер упаковывает пакет в
+   SMS-DELIVER TPDU с CPI (`70 00`) в User Data Header и отправляет
+   карте командой `ENVELOPE(SMS-PP-DOWNLOAD)`.
+4. **Декодировать PoR** — подтверждение приёма возвращается либо в ответе
+   ENVELOPE (режим delivery-report), либо через проактивную команду FETCH
+   с SUBMIT-SM (режим submit, бит SPI2 0x20).
+
+### Ключевой материал
+
+| Параметр | Поле ENVELOPE | Описание |
+|---|---|---|
+| KIc / KID | индикатор ключа и алгоритма | напр. `15` = индекс 1, triple-DES-CBC2 |
+| kicKey / kidKey | 16- или 24-байтные ключи в hex | должны совпадать с OTA-ключами карты |
+| TAR | 3-байтный Toolkit Application Reference | напр. `b00000` |
+| SPI1 / SPI2 | Security Parameter Indicators | шифрование, CC, режим PoR |
+| Счётчик | 5-байтный big-endian счётчик | должен быть строго больше, чем на карте |
+| APDU | hex | команда, выполняемая картой (напр. `00a40000023f00`) |
+
+### Режимы PoR
+
+- **Delivery report** (бит SPI2 0x20 сброшен) — PoR приходит в ответе
+  ENVELOPE. Сервер выполняет `GET RESPONSE` (`61XX`).
+- **Submit SM** (бит SPI2 0x20 установлен) — карта отправляет PoR в
+  SMS-SUBMIT через проактивную команду. Сервер извлекает её командой
+  `FETCH` (`80 12`), отправляет `TERMINAL RESPONSE` и декодирует PoR
+  из SMS TPDU. Если ENVELOPE не сигнализирует о pending-команде,
+  выполняется проактивный опрос через `STATUS` (`80 F2`).
+
+### Пример
+
+```bash
+# Генерация эталона и сверка
+curl -s http://127.0.0.1:8080/api/sp-verify -X POST -d '{
+  "spi1":"16","spi2":"01","kic":"15","kid":"15","tar":"b00000",
+  "cntr":"0000000001","apdu":"00a40000023f00",
+  "kicKey":"D6FCC0...","kidKey":"1B07E7..."
+}'
+
+# Отправка OTA-команды
+curl -s http://127.0.0.1:8080/api/send-ota -X POST -d '{
+  "sp":"00201516011515...","spi1":"16","spi2":"01",
+  "kic":"15","kid":"15","cntr":"0000000001",
+  "kicKey":"D6FCC0...","kidKey":"1B07E7..."
+}'
+```
 
 ## Совместимость версий
 
@@ -191,6 +252,56 @@ sudo usermod -a -G pcscd $USER   # затем выйти и зайти зано�
 ```json
 {"usage": "apdu [-h] [--expect-sw EXPECT_SW] [--raw] APDU", "description": "...", "args": [{"name": "APDU", "type": "positional", "help": "..."}]}
 ```
+
+### `POST /api/send-ota`
+
+Отправка OTA-команды (SCP80) на карту через SMS-PP-DOWNLOAD ENVELOPE.
+Защищённый пакет помещается в SMS-DELIVER TPDU с CPI (`70 00`) в UDH
+и доставляется командой `ENVELOPE(SMS-PP-DOWNLOAD)`.
+
+**Тело запроса:**
+```json
+{
+  "sp": "00201516011515b00000...",
+  "spi1": "16", "spi2": "01",
+  "kic": "15", "kid": "15",
+  "tar": "b00000", "cntr": "0000000001",
+  "kicKey": "D6FCC0...", "kidKey": "1B07E7..."
+}
+```
+
+**Ответ (PoR в delivery report):**
+```json
+{"success": true, "sw": "9000", "response_data": "027100000e0a...",
+ "por": {"response_status": "por_ok", "tar": "B00000",
+         "decoded": {"last_status_word": "6e00", ...}}}
+```
+
+**Ответ (PoR в submit SM):** PoR извлекается из SMS-SUBMIT TPDU,
+полученного через проактивную команду FETCH. Структура `por` такая же.
+
+Бит SPI2 `por_in_submit` (0x20) выбирает режим submit.
+
+### `POST /api/sp-verify`
+
+Сверка защищённого пакета с эталоном pySim (`OtaDialectSms.encode_cmd`).
+
+```json
+{"spi1": "16", "spi2": "01", "kic": "15", "kid": "15",
+ "tar": "b00000", "cntr": "0000000001", "apdu": "00a40000023f00",
+ "kicKey": "D6FCC0...", "kidKey": "1B07E7..."}
+```
+
+**Ответ:**
+```json
+{"js_sp": "...", "py_sp": "...", "match": true,
+ "diffs": [], "spi": {"counter": "counter_must_be_higher", ...}}
+```
+
+### `GET /api/menu`
+
+Возвращает SETUP MENU, полученный от карты в ответ на TERMINAL PROFILE.
+Пустой `{"items": []}` — карта не отправила меню.
 
 ### `POST /api/read`
 

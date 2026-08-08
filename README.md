@@ -90,6 +90,9 @@ Connect a PC/SC reader with a SIM card, then open [http://127.0.0.1:8080](http:/
 | `--skip-card-init` | Skip card initialization |
 | `--apdu-trace` | Log APDU-level traces to stderr |
 | `--log-requests` | Log request/response payloads to stderr |
+| `--sms-oa` | TP-Originating-Address in SMS-DELIVER TPDU (default: `12345`) |
+| `--sms-sm-sc` | SM-SC address for PoR-in-submit routing (default: `12345678912`) |
+| `--terminal-profile` | TERMINAL PROFILE payload hex sent at startup (default: all-FF, 32 bytes) |
 
 ### Reader selection
 
@@ -131,6 +134,64 @@ The setup script installs packages inside a virtual environment (`.venv/`) — n
 
 ```bash
 pip install --user pysim-otaman-server
+```
+
+## SCP80 OTA
+
+The server supports sending OTA commands to SIM/USIM/UICC cards using the
+SCP80 protocol (ETSI TS 102 225, 3GPP TS 31.115) over an SMS-PP-DOWNLOAD
+ENVELOPE delivered via a PC/SC card reader.
+
+### Overview
+
+1. **Generate a secured packet** in the OTAMan PWA's *Secured Packet* tab —
+   provide KIc/KID keys, TAR, counter, SPI, and an APDU.
+2. **Cross-verify** the packet against pySim's reference implementation
+   with the `sp-verify` API or the PWA's *Verify vs pySim* button.
+3. **Send** the packet via `/api/send-ota`. The server wraps it in an
+   SMS-DELIVER TPDU with CPI (`70 00`) in the User Data Header and delivers
+   it to the card via an `ENVELOPE(SMS-PP-DOWNLOAD)` APDU.
+4. **Decode the PoR** — the proof-of-receipt is returned either in the
+   ENVELOPE response data (delivery-report mode) or via a proactive
+   FETCH of a SUBMIT‑SM (submit mode, SPI2 bit 0x20).
+
+### Key material
+
+| Parameter | ENVELOPE field | Notes |
+|---|---|---|
+| KIc / KID | Key and algorithm indicator | e.g. `15` = index 1, triple‑DES‑CBC2 |
+| kicKey / kidKey | 16‑ or 24‑byte hex keys | must match the card's OTA key set |
+| TAR | 3‑byte Toolkit Application Reference | e.g. `b00000` |
+| SPI1 / SPI2 | Security Parameter Indicators | controls ciphering, CC, PoR mode |
+| Counter | 5‑byte big‑endian counter | must be strictly higher than the card's |
+| APDU | hex | the command the card executes (e.g. `00a40000023f00`) |
+
+### PoR modes
+
+- **Delivery report** (SPI2 bit 0x20 clear) — the PoR arrives in the
+  ENVELOPE response data. The server issues `GET RESPONSE` (`61XX`).
+- **Submit SM** (SPI2 bit 0x20 set) — the card sends the PoR as an
+  SMS‑SUBMIT via a proactive command. The server fetches it with
+  `FETCH` (`80 12`), sends `TERMINAL RESPONSE`, and decodes the PoR
+  from the SMS TPDU. Proactive polling with `STATUS` (`80 F2`) is
+  performed if the ENVELOPE itself does not signal a pending command.
+
+### Example
+
+```bash
+# Generate a reference and cross-check
+curl -s http://127.0.0.1:8080/api/sp-verify -X POST -d '{
+  "spi1":"16","spi2":"01","kic":"15","kid":"15","tar":"b00000",
+  "cntr":"0000000001","apdu":"00a40000023f00",
+  "kicKey":"D6FCC0...","kidKey":"1B07E7..."
+}'
+
+# Send the OTA command
+curl -s http://127.0.0.1:8080/api/send-ota -X POST -d '{
+  "sp":"00201516011515...","spi1":"16","spi2":"01",
+  "kic":"15","kid":"15","cntr":"0000000001",
+  "kicKey":"D6FCC0...","kidKey":"1B07E7..."
+}'
 ```
 
 ## Version compatibility
@@ -202,6 +263,63 @@ Returns:
 ```json
 {"usage": "apdu [-h] [--expect-sw EXPECT_SW] [--raw] APDU", "description": "...", "args": [{"name": "APDU", "type": "positional", "help": "..."}]}
 ```
+
+### `POST /api/send-ota`
+
+Send an OTA command (SCP80) to the card via SMS-PP-DOWNLOAD ENVELOPE.
+The secured packet is delivered in an SMS-DELIVER TPDU wrapped in an ENVELOPE command.
+
+**Request body:**
+```json
+{
+  "sp": "00201516011515b00000...",
+  "spi1": "16",
+  "spi2": "01",
+  "kic": "15",
+  "kid": "15",
+  "tar": "b00000",
+  "cntr": "0000000001",
+  "kicKey": "D6FCC023...",
+  "kidKey": "1B07E7E0..."
+}
+```
+
+**Response (delivery PoR):**
+```json
+{"success": true, "sw": "9000", "response_data": "027100000e0a...",
+ "por": {"response_status": "por_ok", "tar": "B00000", "pcntr": 0,
+         "decoded": {"number_of_commands": 1, "last_status_word": "6e00",
+                      "last_response_data": ""}}}
+```
+
+**Response (submit PoR):** PoR is extracted from the SMS-SUBMIT TPDU
+fetched via a proactive command (FETCH). The response contains the
+same `por` structure if decoding succeeds.
+
+The SPI2 `por_in_submit` bit (0x20) selects submit-mode PoR.
+
+### `POST /api/sp-verify`
+
+Cross-check a secured packet against pySim's `OtaDialectSms.encode_cmd`
+reference. Returns the JS-generated packet, pySim reference, a match flag,
+and the decoded SPI fields.
+
+```json
+{"spi1": "16", "spi2": "01", "kic": "15", "kid": "15", "tar": "b00000",
+ "cntr": "0000000001", "apdu": "00a40000023f00",
+ "kicKey": "D6FCC023...", "kidKey": "1B07E7E0..."}
+```
+
+**Response:**
+```json
+{"js_sp": "...", "py_sp": "...", "match": true,
+ "diffs": [], "spi": {"counter": "counter_must_be_higher", ...}}
+```
+
+### `GET /api/menu`
+
+Returns the SETUP MENU captured from the card's TERMINAL PROFILE response
+at startup. Empty `{"items": []}` if the card didn't send a menu.
 
 ### `POST /api/read`
 
