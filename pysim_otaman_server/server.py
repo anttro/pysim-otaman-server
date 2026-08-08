@@ -10,7 +10,7 @@ from io import StringIO
 from pySim.transport import ApduTracer
 
 
-VERSION = '1.2.1'
+VERSION = '1.2.2'
 
 
 class StderrApduTracer(ApduTracer):
@@ -128,7 +128,7 @@ def _parse_tree_output(output):
 
 def _encode_sms_oa(number):
     digits = [int(c) for c in number if c.isdigit()]
-    oa = bytes([len(digits), 0x90])
+    oa = bytes([len(digits), 0x91])
     for i in range(0, len(digits), 2):
         first = digits[i]
         second = digits[i + 1] if i + 1 < len(digits) else 0xF
@@ -162,7 +162,7 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345'):
     if chunk_total > 1:
         udh = bytes([0x00, 0x03, 0x01, chunk_total, chunk_num])
     tp_ud = udh + chunk
-    first_byte = 0x40 if udh else 0x00
+    first_byte = 0x44 if udh else 0x04
     tpdu = bytes([first_byte]) + _encode_sms_oa(oa_number) + bytes([0x7F, 0xF6]) + _encode_scts() + bytes([len(tp_ud)]) + tp_ud
     return tpdu.hex()
 
