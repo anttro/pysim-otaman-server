@@ -863,7 +863,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_req(body)
             result = body.get('result', 'ok')
             item_id = body.get('item_id')
-            RESULT_MAP = {'ok': 0x00, 'cancel': 0x10, 'timeout': 0x11, 'back': 0x12}
+            RESULT_MAP = {'ok': 0x00, 'cancel': 0x10, 'back': 0x11, 'timeout': 0x12}
             gr = RESULT_MAP.get(result, 0x00)
             pd = self.server.stk_pending
             # Build TERMINAL RESPONSE
