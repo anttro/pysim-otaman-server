@@ -41,6 +41,7 @@ def main():
         scc = SimCardCommands(sl)
         sl.wait_for_card(3)
         rs, card = mod.init_card(sl, opts.skip_card_init)
+        scc.terminal_profile('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
     except Exception:
         print("Warning: reader/card initialization failed:", file=sys.stderr)
         traceback.print_exc()
