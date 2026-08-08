@@ -827,7 +827,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 item_id = int(item_id)
             self.server.menu_active = True
             # Build ENVELOPE(Menu Selection): D3 [len] DeviceIdentities + ItemIdentifier
-            menu_tlv = bytes([0xD3, 0x07, 0x82, 0x02, 0x81, 0x83, 0x90, 0x01, item_id])
+            menu_tlv = bytes([0xD3, 0x07, 0x82, 0x02, 0x01, 0x81, 0x90, 0x01, item_id])
             env_hex = '80c20000%02x%s' % (len(menu_tlv), menu_tlv.hex())
             data, sw = scc._tp.send_apdu(env_hex)
             resp = {'type': 'done', 'sw': sw}
