@@ -10,7 +10,7 @@ from io import StringIO
 from pySim.transport import ApduTracer
 
 
-VERSION = '1.3.0'
+VERSION = '1.3.1'
 
 
 class StderrApduTracer(ApduTracer):
@@ -248,24 +248,29 @@ def _ota_reference(spi1, spi2, kic, kid, tar_hex, cntr_hex, apdu_hex, kic_key_he
     if not spi['ciphering'] and spi['rc_cc_ds'] != 'no_rc_cc_ds':
         # pySim drops the CPL octets from its unciphered output; re-add them
         # (they are included in the RC/CC/DS calculation) per TS 31.115 4.2.
-        cpl = len(out) - 2
+        # CPL counts octets from the CHL octet to the last octet of the
+        # Secured Data (incl. padding); pySim's unciphered output is exactly
+        # that range, so the CPL value equals its length.
+        cpl = len(out)
         out = cpl.to_bytes(2, 'big') + out
     return b2h(out), spi
 
 
 def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, response_hex):
-    from pySim.ota import OtaDialectSms, OtaCheckError
+    from pySim.ota import OtaDialectSms
     from osmocom.utils import h2b, b2h
     if not response_hex:
         return None
     otak = _ota_keyset(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex)
     spi = _spi_from_bytes(int(spi1, 16), int(spi2, 16))
-    data = h2b(response_hex)
-    if not data or data[0] != 0x02:
-        return None
     try:
+        data = h2b(response_hex)
+        if not data or data[0] != 0x02:
+            return None
         res, dec = OtaDialectSms().decode_resp(otak, spi, data)
-    except (OtaCheckError, ValueError, KeyError):
+    except Exception:
+        # any malformed/garbage PoR (non-hex, bad UDL, truncated fields,
+        # bad CC) is not a POR; never let decoding crash the request handler.
         return None
     out = {
         'response_status': str(res['response_status']),
