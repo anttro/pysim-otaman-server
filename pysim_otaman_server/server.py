@@ -200,18 +200,20 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
         get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
     elif sw.startswith('91'):
-        from pySim.cat import ProactiveCommand
-        from osmocom.utils import h2b
         fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
         fdata, fsw = rv[0], rv[1]
         if fdata and scc._tp.proactive_handler:
-            pcmd = ProactiveCommand()
-            try:
-                parsed = pcmd.from_tlv(h2b(fdata))
-                scc._tp.proactive_handler.receive_fetch_raw(pcmd, parsed)
-            except Exception:
-                pass
+            raw = bytes.fromhex(fdata)
+            if raw[0] == 0xD0:
+                off = 2
+                while off < len(raw) - 1:
+                    tag, tlen = raw[off], raw[off + 1]
+                    val = raw[off + 2: off + 2 + tlen]
+                    off += 2 + tlen
+                    if tag == 0x8B and tlen >= 1:
+                        scc._tp.proactive_handler.submit_tpdu_hex = val.hex()
+                        break
         tr_tlv = bytes([0x81, 0x03, 0x01, 0x00, 0x00,
                         0x82, 0x02, 0x83, 0x81,
                         0x83, 0x02, 0x00, 0x00])
@@ -305,28 +307,12 @@ def _decode_por(spi1, spi2, kic, kid, cntr_hex, kic_key_hex, kid_key_hex, respon
 
 class PoRSubmitHandler(ProactiveHandler):
     """Captures the SMS-SUBMIT TPDU from a SendShortMessage proactive command
-    issued by the SIM in response to PoR-in-submit (SPI2 bit 0x20)."""
+    issued by the SIM in response to PoR-in-submit (SPI2 bit 0x20).
+    The 91XX path in _send_envelope scans the FETCH response directly for
+    the SMS_TPDU child (tag 0x8B) and populates submit_tpdu_hex."""
     def __init__(self):
         super().__init__()
         self.submit_tpdu_hex = None
-
-    def receive_fetch_raw(self, pcmd, parsed):
-        from pySim.cat import SendShortMessage, SMS_TPDU
-        from osmocom.utils import b2h
-        import sys
-        print('DEBUG PoRSubmitHandler: parsed type =', type(parsed).__name__, file=sys.stderr)
-        for child in pcmd.children:
-            tag = getattr(type(child), 'tag', '?')
-            print('DEBUG PoRSubmitHandler: child type =', type(child).__name__, ' tag =', hex(tag) if isinstance(tag, int) else tag, file=sys.stderr)
-        sys.stderr.flush()
-        if isinstance(parsed, SendShortMessage):
-            for child in pcmd.children:
-                if isinstance(child, SMS_TPDU):
-                    tpdu = child.decoded.get('tpdu') if isinstance(child.decoded, dict) else child.decoded
-                    if tpdu:
-                        self.submit_tpdu_hex = b2h(tpdu)
-                    break
-        return self.prepare_response(pcmd, 'performed_successfully')
 
 
 class PysimHandler(BaseHTTPRequestHandler):
