@@ -25,8 +25,8 @@ def main():
     parser.add_argument('--log-requests', action='store_true', default=False, help='Log request/response payloads to stderr')
     parser.add_argument('--sms-oa', default='12345', metavar='DIGITS',
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
-    parser.add_argument('--sms-sm-sc', default='12345', metavar='DIGITS',
-                        help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345)')
+    parser.add_argument('--sms-sm-sc', default='12345678912', metavar='DIGITS',
+                        help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345678912)')
 
     opts = parser.parse_args()
     sl = None

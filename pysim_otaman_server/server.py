@@ -173,7 +173,7 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', in
     return tpdu.hex()
 
 
-def _send_envelope(tpdu_hex, scc, sm_sc='12345'):
+def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
     from pySim.ts_31_102 import SMSPPDownload
     from pySim.cat import DeviceIdentities, Address
     from osmocom.tlv import COMPR_TLV_IE
