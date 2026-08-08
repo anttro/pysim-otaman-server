@@ -200,24 +200,31 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
         get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
     elif sw.startswith('91'):
-        fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
-        rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
-        fdata, fsw = rv[0], rv[1]
-        if fdata and scc._tp.proactive_handler:
-            raw = bytes.fromhex(fdata)
-            if raw[0] == 0xD0:
-                off = 2
-                while off < len(raw) - 1:
-                    tag, tlen = raw[off], raw[off + 1]
-                    val = raw[off + 2: off + 2 + tlen]
-                    off += 2 + tlen
-                    if tag == 0x8B and tlen >= 1:
-                        scc._tp.proactive_handler.submit_tpdu_hex = val.hex()
-                        break
-        tr_tlv = bytes([0x81, 0x03, 0x01, 0x00, 0x00,
-                        0x82, 0x02, 0x83, 0x81,
-                        0x83, 0x02, 0x00, 0x00])
-        scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+        while sw.startswith('91'):
+            fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
+            rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
+            fdata, sw = rv[0], rv[1]
+            cmd_num, cmd_type = 1, 0
+            dev_src, dev_dst = 0x83, 0x81
+            if fdata:
+                raw = bytes.fromhex(fdata)
+                if raw[0] == 0xD0:
+                    off = 2
+                    while off < len(raw) - 1:
+                        tag, tlen = raw[off], raw[off + 1]
+                        val = raw[off + 2: off + 2 + tlen]
+                        off += 2 + tlen
+                        if tag == 0x81 and tlen >= 3:
+                            cmd_num, cmd_type = val[0], val[1]
+                        elif tag == 0x82 and tlen >= 2:
+                            dev_src, dev_dst = val[0], val[1]
+                        elif tag == 0x8B and tlen >= 1:
+                            if scc._tp.proactive_handler:
+                                scc._tp.proactive_handler.submit_tpdu_hex = val.hex()
+            tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+                            0x82, 0x02, dev_dst, dev_src,
+                            0x83, 0x02, 0x00, 0x00])
+            scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
         data, sw = '', '9000'
     return data, sw
 
