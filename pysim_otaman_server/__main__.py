@@ -59,6 +59,7 @@ def main():
                 fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0xff
                 fdata, sw = scc._tp.send_apdu('80120000%02x' % fetch_len)
                 cmd_num, cmd_type = 1, 0
+                dev_src, dev_dst = 0x83, 0x81
                 if fdata:
                     raw = bytes.fromhex(fdata)
                     if raw[0] == 0xD0:
@@ -73,6 +74,8 @@ def main():
                                 cmd_num, cmd_type = val[0], val[1]
                                 if cmd_type == 0x25:
                                     menu = {'command_number': cmd_num, 'items': items}
+                            elif tag == 0x82 and tlen >= 2:
+                                dev_src, dev_dst = val[0], val[1]
                             elif tag == 0x05 and tlen >= 1 and menu is not None:
                                 try:
                                     menu['title'] = _STK_DECODE._decode(val, {}, 'stk_title')
@@ -88,12 +91,12 @@ def main():
                             sim_menu = menu
                 if cmd_type == 0x03:
                     tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                    0x02, 0x02, 0x83, 0x81,
+                                    0x02, 0x02, dev_dst, dev_src,
                                     0x84, 0x02, 0x01, 0x1E,
                                     0x03, 0x01, 0x00])
                 else:
                     tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                    0x02, 0x02, 0x83, 0x81,
+                                    0x02, 0x02, dev_dst, dev_src,
                                     0x03, 0x01, 0x00])
                 tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
                 sw = tr_rv[1]
