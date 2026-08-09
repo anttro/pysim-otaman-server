@@ -7,6 +7,7 @@ from http.server import HTTPServer
 from pySim.card_handler import CardHandler
 from pySim.commands import SimCardCommands
 from pySim.log import PySimLogger
+from pySim.cards import UiccCardBase
 
 from .shell import load_pysim_app
 from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile
@@ -45,9 +46,11 @@ def main():
             kwargs['apdu_tracer'] = StderrApduTracer()
         sl = mod.init_reader(opts, **kwargs)
         scc = SimCardCommands(sl)
+        scc.cat_cla = 'a0'  # default GSM CLA, overridden after init_card
         sl.wait_for_card(3)
         sim_menu = _send_terminal_profile(scc, opts.terminal_profile)
         rs, card = mod.init_card(sl, opts.skip_card_init)
+        scc.cat_cla = '80' if isinstance(card, UiccCardBase) else 'a0'
     except Exception:
         print("Warning: reader/card initialization failed:", file=sys.stderr)
         traceback.print_exc()

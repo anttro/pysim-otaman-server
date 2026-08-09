@@ -198,7 +198,7 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
     dev_ids = DeviceIdentities(decoded={'source_dev_id': 'network', 'dest_dev_id': 'uicc'})
     raw_tpdu = RawTpdu(tpdu_hex)
     sms_dl = SMSPPDownload(children=[dev_ids, address, raw_tpdu])
-    env_hex = '80c20000%02x%s' % (len(sms_dl.to_tlv()), b2h(sms_dl.to_tlv()))
+    env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(sms_dl.to_tlv()), b2h(sms_dl.to_tlv()))
     data, sw = scc._tp.send_apdu(env_hex)
     if sw.startswith('61'):
         get_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
@@ -210,7 +210,7 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
     if sw == '9000' and scc._tp.proactive_handler and not scc._tp.proactive_handler.submit_tpdu_hex:
-        st_data, st_sw = scc._tp.send_apdu('80f2000000')
+        st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
         if st_sw.startswith('91'):
             _handle_proactive_chain(scc, st_sw, _capture_sms_tpdu)
     return data, sw
@@ -377,7 +377,7 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
     sw = sw91
     while sw.startswith('91'):
         fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
-        rv = scc._tp.send_apdu('80120000%02x' % fetch_len)
+        rv = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
         fdata, sw = rv[0], rv[1]
         raw = bytes.fromhex(fdata) if fdata else None
         action = None
@@ -397,20 +397,20 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x02, 0x02, dev_dst, dev_src,
                                 0x03, 0x01, 0x00])
-            tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sw = tr_rv[1]
             if action == 'exit':
                 return sw
 
 
 def _send_terminal_profile(scc, tp_hex):
-    tp_data, tp_sw = scc._tp.send_apdu('80100000%02x%s' % (len(tp_hex) // 2, tp_hex))
+    tp_data, tp_sw = scc._tp.send_apdu('%s100000%02x%s' % (scc.cat_cla, len(tp_hex) // 2, tp_hex))
     sim_menu = None
     if tp_sw.startswith('91'):
         sw = tp_sw
         while sw.startswith('91'):
             fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0xff
-            fdata, sw = scc._tp.send_apdu('80120000%02x' % fetch_len)
+            fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
             cmd_num, cmd_type = 1, 0
             dev_src, dev_dst = 0x83, 0x81
             if fdata:
@@ -451,7 +451,7 @@ def _send_terminal_profile(scc, tp_hex):
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x02, 0x02, dev_dst, dev_src,
                                 0x03, 0x01, 0x00])
-            tr_rv = scc._tp.send_apdu('80140000%02x%s' % (len(tr_tlv), tr_tlv.hex()))
+            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sw = tr_rv[1]
     return sim_menu
 
@@ -885,7 +885,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             self.server.menu_active = True
             # Build ENVELOPE(Menu Selection): D3 [len] DeviceIdentities + ItemIdentifier
             menu_tlv = bytes([0xD3, 0x07, 0x02, 0x02, 0x01, 0x81, 0x90, 0x01, item_id])
-            env_hex = '80c20000%02x%s' % (len(menu_tlv), menu_tlv.hex())
+            env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(menu_tlv), menu_tlv.hex())
             data, sw = scc._tp.send_apdu(env_hex)
             resp = {'type': 'done', 'sw': sw}
             if sw.startswith('91'):
@@ -930,7 +930,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             if isinstance(item_id, int) and result == 'ok' and pd['type'] == 'select_item':
                 tr_data += bytes([0x90, 0x01, item_id])
             tr_data += bytes([0x83, 0x02, gr, 0x00])
-            tr_hex = '80140000%02x%s' % (len(tr_data), tr_data.hex())
+            tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_data), tr_data.hex())
             tr_rv = scc._tp.send_apdu(tr_hex)
             sw = tr_rv[1]
             resp = {'sw': sw}
