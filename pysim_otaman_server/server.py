@@ -220,7 +220,7 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None):
         data, sw = '', '9000'
     if sw == '9000' and submit_handler and not submit_handler.submit_tpdu_hex:
         sys.stderr.write('STATUS poll (PoR not captured)\n')
-        st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+        st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
         sys.stderr.write('STATUS -> %s\n' % st_sw)
         if st_sw.startswith('91'):
             _handle_proactive_chain(scc, st_sw, _capture_sms_tpdu)
@@ -416,6 +416,19 @@ def _parse_select_item(raw):
     return items
 
 
+def _parse_setup_menu_items(raw):
+    items = []
+    if not raw or raw[0] != 0xD0:
+        return items
+    off = _skip_ber_len(raw, 1)
+    while off < len(raw) - 1:
+        tag, tlen = raw[off], raw[off + 1]
+        val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
+        if tag == 0x8F and tlen >= 2:
+            items.append({'id': val[0], 'text': _decode_stk_text(val[1:])})
+    return items
+
+
 def _handle_proactive_chain(scc, sw91, on_fetch=None):
     sys.stderr.write('91XX chain: sw=%s\n' % sw91)
     sw = sw91
@@ -447,7 +460,7 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
             sw = tr_rv[1]
             if sw == '9000':
                 sys.stderr.write('STATUS poll (chain ended)\n')
-                st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
                 sys.stderr.write('STATUS -> %s\n' % st_sw)
                 if st_sw.startswith('91'):
                     sw = st_sw
@@ -512,7 +525,7 @@ def _send_terminal_profile(scc, tp_hex):
             sw = tr_rv[1]
             if sw == '9000':
                 sys.stderr.write('STATUS poll (tp chain ended)\n')
-                st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
                 sys.stderr.write('STATUS -> %s\n' % st_sw)
                 if st_sw.startswith('91'):
                     sw = st_sw
@@ -709,7 +722,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
             sys.stderr.write('STATUS poll (manual)\n')
-            st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+            st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
             sys.stderr.write('STATUS -> %s\n' % st_sw)
             resp = {'sw': st_sw}
             if st_sw.startswith('91'):
@@ -1013,13 +1026,20 @@ class PysimHandler(BaseHTTPRequestHandler):
                             'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
                         resp.update(type='select_item', items=items)
                         return 'pause'
+                    elif cmd_type == 0x25:
+                        items = _parse_setup_menu_items(raw) if raw else []
+                        self.server.stk_pending = {'type': 'select_item',
+                            'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                            'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
+                        resp.update(type='select_item', items=items)
+                        return 'pause'
                 _handle_proactive_chain(scc, sw, _on_menu_fetch)
             else:
                 self.server.menu_active = False
                 self.server.stk_pending = None
                 if sw == '9000':
                     sys.stderr.write('STATUS poll (menu-select 9000)\n')
-                    st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                    st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
                     sys.stderr.write('STATUS -> %s\n' % st_sw)
                     if st_sw.startswith('91'):
                         _handle_proactive_chain(scc, st_sw, _on_menu_fetch)
@@ -1066,6 +1086,13 @@ class PysimHandler(BaseHTTPRequestHandler):
                                 return 'pause'
                         elif cmd_type == 0x24:
                             items = _parse_select_item(raw) if raw else []
+                            self.server.stk_pending = {'type': 'select_item',
+                                'cmd_num': cmd_num, 'cmd_type': cmd_type,
+                                'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
+                            resp.update(type='select_item', items=items)
+                            return 'pause'
+                        elif cmd_type == 0x25:
+                            items = _parse_setup_menu_items(raw) if raw else []
                             self.server.stk_pending = {'type': 'select_item',
                                 'cmd_num': cmd_num, 'cmd_type': cmd_type,
                                 'dev_src': dev_src, 'dev_dst': dev_dst, 'items': items}
