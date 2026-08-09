@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import StringIO
 from pySim.transport import ApduTracer, ProactiveHandler
+from pySim.cards import UiccCardBase
 
 import gsm0338  # registers 'gsm03.38' codec
 from construct import GreedyBytes
@@ -691,6 +692,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self.server.stk_pending = None
                 self.server.menu_active = False
                 self.server.event_list = None
+                self.server.scc.cat_cla = '80' if isinstance(self.server.card, UiccCardBase) else 'a0'
                 sm, el = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
                 self.server.sim_menu = sm
                 self.server.event_list = el
