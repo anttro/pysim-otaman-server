@@ -602,6 +602,8 @@ class PysimHandler(BaseHTTPRequestHandler):
             elapsed = int((time.time() - t0) * 1000)
             status = 'OK' if not output or 'not a recognized command' not in output else 'ERROR'
             if str(cmd).strip().startswith('equip') and self.server.scc and self.server.terminal_profile:
+                self.server.stk_pending = None
+                self.server.menu_active = False
                 self.server.sim_menu = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
             sys.stderr.write("CMD: %s → %s (%dms)\n" % (cmd, status, elapsed))
             resp = {'output': output, 'stop': bool(stop)}
