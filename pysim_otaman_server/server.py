@@ -312,6 +312,16 @@ class PoRSubmitHandler(ProactiveHandler):
 _STK_DECODE = GsmOrUcs2Adapter(GreedyBytes)
 
 
+def _skip_ber_len(raw, off):
+    if off >= len(raw):
+        return off
+    if raw[off] < 0x80:
+        return off + 1
+    if raw[off] == 0x81:
+        return off + 2
+    return off + 3
+
+
 def _decode_stk_text(raw):
     try:
         return _STK_DECODE._decode(raw, {}, 'stk')
@@ -323,7 +333,7 @@ def _parse_proactive_header(raw):
     cmd_num, cmd_type = 1, 0
     dev_src, dev_dst = 0x83, 0x81
     if raw[0] == 0xD0:
-        off = 2
+        off = _skip_ber_len(raw, 1)
         while off < len(raw) - 1:
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
@@ -336,7 +346,7 @@ def _parse_proactive_header(raw):
 
 def _find_sms_tpdu(raw):
     if raw[0] == 0xD0:
-        off = 2
+        off = _skip_ber_len(raw, 1)
         while off < len(raw) - 1:
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
@@ -347,7 +357,7 @@ def _find_sms_tpdu(raw):
 
 def _parse_display_text(raw):
     if raw[0] == 0xD0:
-        off = 2
+        off = _skip_ber_len(raw, 1)
         while off < len(raw) - 1:
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
@@ -359,7 +369,7 @@ def _parse_display_text(raw):
 def _parse_select_item(raw):
     items = []
     if raw[0] == 0xD0:
-        off = 2
+        off = _skip_ber_len(raw, 1)
         while off < len(raw) - 1:
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
@@ -416,7 +426,7 @@ def _send_terminal_profile(scc, tp_hex):
             if fdata:
                 raw = bytes.fromhex(fdata)
                 if raw[0] == 0xD0:
-                    off = 2
+                    off = _skip_ber_len(raw, 1)
                     menu = None
                     items = []
                     while off < len(raw) - 1:
