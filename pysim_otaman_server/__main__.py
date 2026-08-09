@@ -13,11 +13,16 @@ from .shell import load_pysim_app
 from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile
 
 
+_server_start = 0
+
 def _log_stdout(msg):
-    os.write(1, (msg + '\n').encode())
+    elapsed = time.time() - _server_start
+    os.write(1, ('[%8.3f] %s\n' % (elapsed, msg)).encode())
 
 
 def main():
+    global _server_start
+    _server_start = time.time()
     mod = load_pysim_app()
     parser = mod.option_parser
     parser.description = 'pysim-otaman-server — HTTP API for pysim'

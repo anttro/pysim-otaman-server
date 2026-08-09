@@ -18,10 +18,18 @@ VERSION = '1.4.1'
 
 
 class StderrApduTracer(ApduTracer):
+    def __init__(self):
+        super().__init__()
+        self._cmd_start = 0
+
+    def trace_command(self, cmd):
+        self._cmd_start = time.time()
+
     def trace_response(self, cmd, sw, resp):
-        msg = "APDU-TRACE: %s → SW: %s" % (cmd, sw)
+        elapsed = int((time.time() - self._cmd_start) * 1000)
+        msg = 'APDU-TRACE(%dms): %s → SW: %s' % (elapsed, cmd, sw)
         if resp:
-            msg += " RESP: %s" % resp
+            msg += ' RESP: %s' % resp
         os.write(2, (msg + '\n').encode())
 
 
