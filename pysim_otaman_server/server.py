@@ -692,6 +692,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self.server.stk_pending = None
                 self.server.menu_active = False
                 self.server.event_list = None
+                self.server.card = self.server.app.card
                 self.server.scc.cat_cla = '80' if isinstance(self.server.card, UiccCardBase) else 'a0'
                 sm, el = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
                 self.server.sim_menu = sm
