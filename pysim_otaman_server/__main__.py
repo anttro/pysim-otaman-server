@@ -11,7 +11,7 @@ from pySim.log import PySimLogger
 from pySim.cards import UiccCardBase
 
 from .shell import load_pysim_app
-from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile
+from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler
 
 
 _server_start = 0
@@ -53,6 +53,7 @@ def main():
         sl = mod.init_reader(opts, **kwargs)
         scc = SimCardCommands(sl)
         scc.cat_cla = 'a0'  # default GSM CLA, overridden after init_card
+        scc._tp.proactive_handler = _DefaultProactiveHandler()
         sl.wait_for_card(3)
         sim_menu = _send_terminal_profile(scc, opts.terminal_profile)
         rs, card = mod.init_card(sl, opts.skip_card_init)

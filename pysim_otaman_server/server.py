@@ -185,7 +185,7 @@ def _build_sms_tpdu(chunk_hex, chunk_total=1, chunk_num=1, oa_number='12345', in
     return tpdu.hex()
 
 
-def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
+def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None):
     from pySim.ts_31_102 import SMSPPDownload
     from pySim.cat import DeviceIdentities, Address
     from osmocom.tlv import COMPR_TLV_IE
@@ -213,11 +213,11 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912'):
         data, sw = scc._tp.send_apdu('00c00000%02x' % get_len)
     elif sw.startswith('91'):
         def _capture_sms_tpdu(raw, cmd_num, cmd_type, dev_src, dev_dst):
-            if scc._tp.proactive_handler:
-                scc._tp.proactive_handler.submit_tpdu_hex = _find_sms_tpdu(raw)
+            if submit_handler:
+                submit_handler.submit_tpdu_hex = _find_sms_tpdu(raw)
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
-    if sw == '9000' and scc._tp.proactive_handler and not scc._tp.proactive_handler.submit_tpdu_hex:
+    if sw == '9000' and submit_handler and not submit_handler.submit_tpdu_hex:
         st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
         if st_sw.startswith('91'):
             _handle_proactive_chain(scc, st_sw, _capture_sms_tpdu)
@@ -315,6 +315,13 @@ class PoRSubmitHandler(ProactiveHandler):
     def __init__(self):
         super().__init__()
         self.submit_tpdu_hex = None
+
+
+class _DefaultProactiveHandler(ProactiveHandler):
+    """Catch-all for any proactive command not explicitly handled. Responds
+    with 'performed_successfully' so pySim's auto-fetch never crashes."""
+    def receive_fetch_raw(self, pcmd, parsed):
+        return self.prepare_response(pcmd, 'performed_successfully')
 
 
 _STK_DECODE = GsmOrUcs2Adapter(GreedyBytes)
@@ -1015,7 +1022,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                         tpdu = _build_sms_tpdu(chunk.hex(), total, i + 1, oa_number=self.server.sms_oa,
                                                include_cpi=include_cpi) if total > 1 else _build_sms_tpdu(sp, oa_number=self.server.sms_oa,
                                                                                                             include_cpi=include_cpi)
-                        data, sw = _send_envelope(tpdu, scc, sm_sc=self.server.sms_sc)
+                        data, sw = _send_envelope(tpdu, scc, sm_sc=self.server.sms_sc, submit_handler=submit_handler)
                         last_data = data
                         last_sw = sw
                         if sw != '9000' and not sw.startswith('91'):
