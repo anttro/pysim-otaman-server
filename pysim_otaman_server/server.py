@@ -4,6 +4,7 @@ import os
 import time
 import traceback
 import re
+import codecs
 from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from io import StringIO
@@ -340,8 +341,16 @@ def _skip_ber_len(raw, off):
 
 
 def _decode_stk_text(raw):
+    if not raw or len(raw) < 2:
+        return raw.hex() if raw else ''
     try:
-        return _STK_DECODE._decode(raw, {}, 'stk')
+        dcs = raw[0]
+        data = raw[1:]
+        if (dcs & 0x0C) == 0x08:
+            return codecs.decode(data, 'utf_16_be')
+        if (dcs & 0x0C) == 0x04:
+            return data.decode('latin-1', errors='replace')
+        return codecs.decode(data, 'gsm03.38')
     except Exception:
         return raw.hex()
 
@@ -474,7 +483,7 @@ def _send_terminal_profile(scc, tp_hex):
                                 menu['title'] = val.hex()
                         elif tag == 0x8F and tlen >= 2:
                             try:
-                                txt = _STK_DECODE._decode(val[1:], {}, 'stk_item')
+                                txt = _decode_stk_text(val[1:])
                             except Exception:
                                 txt = val[1:].hex()
                             items.append({'id': val[0], 'text': txt})
