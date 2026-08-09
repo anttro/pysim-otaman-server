@@ -46,6 +46,7 @@ def main():
     card = None
     rs = None
     sim_menu = None
+    event_list = None
     try:
         kwargs = {}
         if opts.apdu_trace:
@@ -55,7 +56,7 @@ def main():
         scc.cat_cla = 'a0'  # default GSM CLA, overridden after init_card
         scc._tp.proactive_handler = _DefaultProactiveHandler()
         sl.wait_for_card(3)
-        sim_menu = _send_terminal_profile(scc, opts.terminal_profile)
+        sim_menu, event_list = _send_terminal_profile(scc, opts.terminal_profile)
         rs, card = mod.init_card(sl, opts.skip_card_init)
         scc.cat_cla = '80' if isinstance(card, UiccCardBase) else 'a0'
     except Exception:
@@ -70,7 +71,9 @@ def main():
         app = None
     if scc and hasattr(scc, '_tp'):
         try:
-            sim_menu = _send_terminal_profile(scc, opts.terminal_profile) or sim_menu
+            sm, el = _send_terminal_profile(scc, opts.terminal_profile)
+            sim_menu = sm or sim_menu
+            event_list = el or event_list
         except Exception:
             pass
     if app is not None and opts.apdu_trace:
@@ -104,6 +107,7 @@ def main():
     server.log_requests = opts.log_requests
     server.terminal_profile = opts.terminal_profile
     server.sim_menu = sim_menu
+    server.event_list = event_list
     server.menu_active = False
     server.stk_pending = None
     print("─" * 70)

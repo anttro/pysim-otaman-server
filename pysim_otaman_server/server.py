@@ -431,6 +431,8 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
 def _send_terminal_profile(scc, tp_hex):
     tp_data, tp_sw = scc._tp.send_apdu('%s100000%02x%s' % (scc.cat_cla, len(tp_hex) // 2, tp_hex))
     sim_menu = None
+    sim_menu = None
+    event_list = None
     if tp_sw.startswith('91'):
         sw = tp_sw
         while sw.startswith('91'):
@@ -465,6 +467,8 @@ def _send_terminal_profile(scc, tp_hex):
                             except Exception:
                                 txt = val[1:].hex()
                             items.append({'id': val[0], 'text': txt})
+                        elif tag in (0x99, 0x19) and tlen >= 1:
+                            event_list = [b for b in val]
                     if menu:
                         sim_menu = menu
             if cmd_type == 0x03:
@@ -478,7 +482,7 @@ def _send_terminal_profile(scc, tp_hex):
                                 0x03, 0x01, 0x00])
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sw = tr_rv[1]
-    return sim_menu
+    return sim_menu, event_list
 
 
 class PysimHandler(BaseHTTPRequestHandler):
@@ -589,6 +593,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {**menu, 'active': self.server.menu_active}
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/events':
+            resp = self.server.event_list or []
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/stk-status':
             resp = {'active': self.server.menu_active,
                     'pending': self.server.stk_pending is not None,
@@ -629,7 +637,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             if str(cmd).strip().startswith('equip') and self.server.scc and self.server.terminal_profile:
                 self.server.stk_pending = None
                 self.server.menu_active = False
-                self.server.sim_menu = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
+                self.server.event_list = None
+                sm, el = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
+                self.server.sim_menu = sm
+                self.server.event_list = el
             sys.stderr.write("CMD: %s → %s (%dms)\n" % (cmd, status, elapsed))
             resp = {'output': output, 'stop': bool(stop)}
             self._send_json(resp)
