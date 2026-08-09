@@ -341,6 +341,13 @@ def _skip_ber_len(raw, off):
 
 
 def _decode_stk_text(raw):
+    try:
+        return _STK_DECODE._decode(raw, {}, 'stk')
+    except Exception:
+        return raw.hex()
+
+
+def _decode_dcs_text(raw):
     if not raw or len(raw) < 2:
         return raw.hex() if raw else ''
     try:
@@ -388,7 +395,7 @@ def _parse_display_text(raw):
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
             if tag == 0x8D and tlen >= 1:
-                return _decode_stk_text(val)
+                return _decode_dcs_text(val)
     return None
 
 
@@ -483,7 +490,7 @@ def _send_terminal_profile(scc, tp_hex):
                                 menu['title'] = val.hex()
                         elif tag == 0x8F and tlen >= 2:
                             try:
-                                txt = _decode_stk_text(val[1:])
+                                txt = _STK_DECODE._decode(val[1:], {}, 'stk_item')
                             except Exception:
                                 txt = val[1:].hex()
                             items.append({'id': val[0], 'text': txt})
