@@ -426,10 +426,15 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x82, 0x02, dev_dst, dev_src,
                                 0x03, 0x01, 0x00])
-            tr_ber = bytes([0xD0, len(tr_tlv)]) + tr_tlv
-            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_ber), tr_ber.hex()))
-            sys.stderr.write('TR: cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
+            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
+            sys.stderr.write('TR: cmd=%02x type=%02x -> %s %s\n' % (cmd_num, cmd_type, tr_rv[1], ('(%d bytes)' % len(tr_tlv))))
             sw = tr_rv[1]
+            if sw == '9000':
+                sys.stderr.write('STATUS poll (chain ended)\n')
+                st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                sys.stderr.write('STATUS -> %s\n' % st_sw)
+                if st_sw.startswith('91'):
+                    sw = st_sw
             if action == 'exit':
                 return sw
 
@@ -486,10 +491,15 @@ def _send_terminal_profile(scc, tp_hex):
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x82, 0x02, dev_dst, dev_src,
                                 0x03, 0x01, 0x00])
-            tr_ber = bytes([0xD0, len(tr_tlv)]) + tr_tlv
-            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_ber), tr_ber.hex()))
+            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR(tp): cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
             sw = tr_rv[1]
+            if sw == '9000':
+                sys.stderr.write('STATUS poll (tp chain ended)\n')
+                st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                sys.stderr.write('STATUS -> %s\n' % st_sw)
+                if st_sw.startswith('91'):
+                    sw = st_sw
     return sim_menu, event_list
 
 
@@ -991,6 +1001,12 @@ class PysimHandler(BaseHTTPRequestHandler):
             else:
                 self.server.menu_active = False
                 self.server.stk_pending = None
+                if sw == '9000':
+                    sys.stderr.write('STATUS poll (menu-select 9000)\n')
+                    st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                    sys.stderr.write('STATUS -> %s\n' % st_sw)
+                    if st_sw.startswith('91'):
+                        _handle_proactive_chain(scc, st_sw, _on_menu_fetch)
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/menu-respond':
@@ -1012,8 +1028,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             if isinstance(item_id, int) and result == 'ok' and pd['type'] == 'select_item':
                 tr_data += bytes([0x90, 0x01, item_id])
             tr_data += bytes([0x83, 0x02, gr, 0x00])
-            tr_ber = bytes([0xD0, len(tr_data)]) + tr_data
-            tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_ber), tr_ber.hex())
+            tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_data), tr_data.hex())
             tr_rv = scc._tp.send_apdu(tr_hex)
             sys.stderr.write('TR(menu): cmd=%02x type=%02x result=%02x -> %s\n' % (pd['cmd_num'], pd['cmd_type'], gr, tr_rv[1]))
             sw = tr_rv[1]

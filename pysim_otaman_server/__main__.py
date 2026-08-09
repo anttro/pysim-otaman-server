@@ -11,7 +11,7 @@ from pySim.log import PySimLogger
 from pySim.cards import UiccCardBase
 
 from .shell import load_pysim_app
-from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler
+from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain
 
 
 _server_start = 0
@@ -56,9 +56,6 @@ def main():
         scc.cat_cla = '80'  # UICC CLA default; overridden for SIM after init_card
         scc._tp.proactive_handler = _DefaultProactiveHandler()
         sl.wait_for_card(3)
-        sys.stderr.write('INIT(pre): sending TERMINAL PROFILE (CLA=%s)\n' % scc.cat_cla)
-        sim_menu, event_list = _send_terminal_profile(scc, opts.terminal_profile)
-        sys.stderr.write('INIT(pre): TP done, menu=%s events=%s\n' % ('yes' if sim_menu else 'no', 'yes' if event_list else 'no'))
         rs, card = mod.init_card(sl, opts.skip_card_init)
         scc.cat_cla = '80' if isinstance(card, UiccCardBase) else 'a0'
     except Exception:
@@ -79,6 +76,12 @@ def main():
             sys.stderr.write('INIT: TP done, menu=%s events=%s\n' % ('yes' if sm else 'no', 'yes' if el else 'no'))
             sim_menu = sm or sim_menu
             event_list = el or event_list
+            for _ in range(3):
+                st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                sys.stderr.write('INIT: drain STATUS -> %s\n' % st_sw)
+                if not st_sw.startswith('91'):
+                    break
+                _handle_proactive_chain(scc, st_sw)
         except Exception:
             traceback.print_exc(file=sys.stderr)
     if app is not None and opts.apdu_trace:
