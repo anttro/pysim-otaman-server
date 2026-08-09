@@ -61,7 +61,11 @@ def main():
         print("Warning: PysimApp creation failed:", file=sys.stderr)
         traceback.print_exc()
         app = None
-    sim_menu = _send_terminal_profile(scc, opts.terminal_profile) or sim_menu
+    if scc and hasattr(scc, '_tp'):
+        try:
+            sim_menu = _send_terminal_profile(scc, opts.terminal_profile) or sim_menu
+        except Exception:
+            pass
     if app is not None and opts.apdu_trace:
         # PysimApp.__init__ routes PySimLogger through app.poutput() (app.stdout)
         # and drops the root level to INFO. Re-route pysim's own APDU trace logging
