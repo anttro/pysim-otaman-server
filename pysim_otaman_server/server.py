@@ -220,7 +220,7 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None):
         data, sw = '', '9000'
     if sw == '9000' and submit_handler and not submit_handler.submit_tpdu_hex:
         sys.stderr.write('STATUS poll (PoR not captured)\n')
-        st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
+        st_data, st_sw = _send_status(scc)
         sys.stderr.write('STATUS -> %s\n' % st_sw)
         if st_sw.startswith('91'):
             _handle_proactive_chain(scc, st_sw, _capture_sms_tpdu)
@@ -328,6 +328,12 @@ class _DefaultProactiveHandler(ProactiveHandler):
 
 
 _STK_DECODE = GsmOrUcs2Adapter(GreedyBytes)
+
+
+def _send_status(scc):
+    """STATUS (F2) with correct P3 per card type: SIM=0x23, UICC=0xFF."""
+    p3 = '23' if scc.cat_cla == 'a0' else 'ff'
+    return scc._tp.send_apdu('%sf20000%s' % (scc.cat_cla, p3))
 
 
 def _skip_ber_len(raw, off):
@@ -460,7 +466,7 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
             sw = tr_rv[1]
             if sw == '9000':
                 sys.stderr.write('STATUS poll (chain ended)\n')
-                st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
+                st_data, st_sw = _send_status(scc)
                 sys.stderr.write('STATUS -> %s\n' % st_sw)
                 if st_sw.startswith('91'):
                     sw = st_sw
@@ -525,7 +531,7 @@ def _send_terminal_profile(scc, tp_hex):
             sw = tr_rv[1]
             if sw == '9000':
                 sys.stderr.write('STATUS poll (tp chain ended)\n')
-                st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
+                st_data, st_sw = _send_status(scc)
                 sys.stderr.write('STATUS -> %s\n' % st_sw)
                 if st_sw.startswith('91'):
                     sw = st_sw
@@ -722,7 +728,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
             sys.stderr.write('STATUS poll (manual)\n')
-            st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
+            st_data, st_sw = _send_status(scc)
             sys.stderr.write('STATUS -> %s\n' % st_sw)
             resp = {'sw': st_sw}
             if st_sw.startswith('91'):
@@ -1039,7 +1045,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self.server.stk_pending = None
                 if sw == '9000':
                     sys.stderr.write('STATUS poll (menu-select 9000)\n')
-                    st_data, st_sw = scc._tp.send_apdu('%sf20000ff' % scc.cat_cla)
+                    st_data, st_sw = _send_status(scc)
                     sys.stderr.write('STATUS -> %s\n' % st_sw)
                     if st_sw.startswith('91'):
                         _handle_proactive_chain(scc, st_sw, _on_menu_fetch)

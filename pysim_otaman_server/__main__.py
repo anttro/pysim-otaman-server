@@ -11,7 +11,7 @@ from pySim.log import PySimLogger
 from pySim.cards import UiccCardBase
 
 from .shell import load_pysim_app
-from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain
+from .server import PysimHandler, StderrApduTracer, VERSION, _send_terminal_profile, _DefaultProactiveHandler, _handle_proactive_chain, _send_status
 
 
 _server_start = 0
@@ -77,7 +77,7 @@ def main():
             sim_menu = sm or sim_menu
             event_list = el or event_list
             for _ in range(3):
-                st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+                st_data, st_sw = _send_status(scc)
                 sys.stderr.write('INIT: drain STATUS -> %s\n' % st_sw)
                 if not st_sw.startswith('91'):
                     break
