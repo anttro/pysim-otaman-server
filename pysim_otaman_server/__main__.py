@@ -34,8 +34,8 @@ def main():
                         help='TP-Originating-Address (SMSC number) for the SMS-DELIVER TPDU (default: 12345)')
     parser.add_argument('--sms-sm-sc', default='12345678912', metavar='DIGITS',
                         help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345678912)')
-    parser.add_argument('--terminal-profile', default='7FFFFFFF7F0000CF02', metavar='HEX',
-                        help='TERMINAL PROFILE payload (default: 10-byte GSM profile with SMS-PP download)')
+    parser.add_argument('--terminal-profile', default='7FFFFFFFFF0000CF02', metavar='HEX',
+                        help='TERMINAL PROFILE payload (default: 10-byte profile with SMS-PP download and event list)')
     parser.add_argument('--no-card-init', action='store_true', default=False,
                         help='Skip pysim card initialization (preserve CAT session — no file manager)')
 
@@ -53,10 +53,12 @@ def main():
             kwargs['apdu_tracer'] = StderrApduTracer()
         sl = mod.init_reader(opts, **kwargs)
         scc = SimCardCommands(sl)
-        scc.cat_cla = 'a0'  # default GSM CLA, overridden after init_card
+        scc.cat_cla = '80'  # UICC CLA default; overridden for SIM after init_card
         scc._tp.proactive_handler = _DefaultProactiveHandler()
         sl.wait_for_card(3)
+        sys.stderr.write('INIT(pre): sending TERMINAL PROFILE (CLA=%s)\n' % scc.cat_cla)
         sim_menu, event_list = _send_terminal_profile(scc, opts.terminal_profile)
+        sys.stderr.write('INIT(pre): TP done, menu=%s events=%s\n' % ('yes' if sim_menu else 'no', 'yes' if event_list else 'no'))
         rs, card = mod.init_card(sl, opts.skip_card_init)
         scc.cat_cla = '80' if isinstance(card, UiccCardBase) else 'a0'
     except Exception:
@@ -70,12 +72,15 @@ def main():
         traceback.print_exc()
         app = None
     if scc and hasattr(scc, '_tp'):
+        scc._tp.apdu_tracer = StderrApduTracer()
         try:
+            sys.stderr.write('INIT: sending TERMINAL PROFILE %s (CLA=%s)\n' % (opts.terminal_profile, scc.cat_cla))
             sm, el = _send_terminal_profile(scc, opts.terminal_profile)
+            sys.stderr.write('INIT: TP done, menu=%s events=%s\n' % ('yes' if sm else 'no', 'yes' if el else 'no'))
             sim_menu = sm or sim_menu
             event_list = el or event_list
         except Exception:
-            pass
+            traceback.print_exc(file=sys.stderr)
     if app is not None and opts.apdu_trace:
         # PysimApp.__init__ routes PySimLogger through app.poutput() (app.stdout)
         # and drops the root level to INFO. Re-route pysim's own APDU trace logging

@@ -218,7 +218,9 @@ def _send_envelope(tpdu_hex, scc, sm_sc='12345678912', submit_handler=None):
         _handle_proactive_chain(scc, sw, _capture_sms_tpdu)
         data, sw = '', '9000'
     if sw == '9000' and submit_handler and not submit_handler.submit_tpdu_hex:
+        sys.stderr.write('STATUS poll (PoR not captured)\n')
         st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+        sys.stderr.write('STATUS -> %s\n' % st_sw)
         if st_sw.startswith('91'):
             _handle_proactive_chain(scc, st_sw, _capture_sms_tpdu)
     return data, sw
@@ -399,10 +401,12 @@ def _parse_select_item(raw):
 
 
 def _handle_proactive_chain(scc, sw91, on_fetch=None):
+    sys.stderr.write('91XX chain: sw=%s\n' % sw91)
     sw = sw91
     while sw.startswith('91'):
         fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0x100
         rv = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
+        sys.stderr.write('FETCH(%s): %s -> %s\n' % (fetch_len, rv[0][:80] if rv[0] else '(none)', rv[1]))
         fdata, sw = rv[0], rv[1]
         raw = bytes.fromhex(fdata) if fdata else None
         action = None
@@ -415,14 +419,16 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
         if action != 'pause':
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x02, 0x02, dev_dst, dev_src,
+                                0x82, 0x02, dev_dst, dev_src,
                                 0x84, 0x02, 0x01, 0x1E,
                                 0x03, 0x01, 0x00])
             else:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x02, 0x02, dev_dst, dev_src,
+                                0x82, 0x02, dev_dst, dev_src,
                                 0x03, 0x01, 0x00])
-            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
+            tr_ber = bytes([0xD0, len(tr_tlv)]) + tr_tlv
+            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_ber), tr_ber.hex()))
+            sys.stderr.write('TR: cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
             sw = tr_rv[1]
             if action == 'exit':
                 return sw
@@ -473,14 +479,16 @@ def _send_terminal_profile(scc, tp_hex):
                         sim_menu = menu
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x02, 0x02, dev_dst, dev_src,
+                                0x82, 0x02, dev_dst, dev_src,
                                 0x84, 0x02, 0x01, 0x1E,
                                 0x03, 0x01, 0x00])
             else:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x02, 0x02, dev_dst, dev_src,
+                                0x82, 0x02, dev_dst, dev_src,
                                 0x03, 0x01, 0x00])
-            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
+            tr_ber = bytes([0xD0, len(tr_tlv)]) + tr_tlv
+            tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_ber), tr_ber.hex()))
+            sys.stderr.write('TR(tp): cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
             sw = tr_rv[1]
     return sim_menu, event_list
 
@@ -668,6 +676,44 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr.write("APDU: %s → ERROR: %s (%dms)\n" % (apdu_hex, str(e), elapsed))
                 self._send_json(err, 500)
                 self._log_resp(err)
+        elif self.path == '/api/status-poll':
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            sys.stderr.write('STATUS poll (manual)\n')
+            st_data, st_sw = scc._tp.send_apdu('%sf2000000' % scc.cat_cla)
+            sys.stderr.write('STATUS -> %s\n' % st_sw)
+            resp = {'sw': st_sw}
+            if st_sw.startswith('91'):
+                fetch_len = int(st_sw[2:], 16) if len(st_sw) == 4 else 0x100
+                fdata, fsw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
+                resp['fetch'] = fdata
+                resp['fetch_sw'] = fsw
+                sys.stderr.write('STATUS-FETCH(%s): %s -> %s\n' % (fetch_len, fdata[:80] if fdata else '(none)', fsw))
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/rescue':
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            if not self.server.terminal_profile:
+                self._send_json({'error': 'no terminal profile configured'}, 400)
+                self._log_resp({'error': 'no terminal profile configured'})
+                return
+            sys.stderr.write('RESCUE: re-sending TERMINAL PROFILE\n')
+            self.server.stk_pending = None
+            self.server.menu_active = False
+            self.server.event_list = None
+            sm, el = _send_terminal_profile(scc, self.server.terminal_profile)
+            self.server.sim_menu = sm
+            self.server.event_list = el
+            resp = {'menu': sm is not None, 'events': el}
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/help':
             app = self.server.app
             if not app:
@@ -966,8 +1012,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             if isinstance(item_id, int) and result == 'ok' and pd['type'] == 'select_item':
                 tr_data += bytes([0x90, 0x01, item_id])
             tr_data += bytes([0x83, 0x02, gr, 0x00])
-            tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_data), tr_data.hex())
+            tr_ber = bytes([0xD0, len(tr_data)]) + tr_data
+            tr_hex = '%s140000%02x%s' % (scc.cat_cla, len(tr_ber), tr_ber.hex())
             tr_rv = scc._tp.send_apdu(tr_hex)
+            sys.stderr.write('TR(menu): cmd=%02x type=%02x result=%02x -> %s\n' % (pd['cmd_num'], pd['cmd_type'], gr, tr_rv[1]))
             sw = tr_rv[1]
             resp = {'sw': sw}
             if result == 'cancel':
