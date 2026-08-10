@@ -388,6 +388,7 @@ def _log_proactive(cmd_type, raw, qualifier=None):
     if qualifier is not None:
         entry['qualifier'] = '%02x' % qualifier
     _PROACTIVE_LOG.append(entry)
+    return entry
 
 
 def _reset_proactive_log():
@@ -533,9 +534,10 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
         action = None
         if raw:
             cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
-            _log_proactive(cmd_type, raw, cmd_qual)
+            entry = _log_proactive(cmd_type, raw, cmd_qual)
         else:
             cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = 1, 0, 0x83, 0x81, None
+            entry = None
         if on_fetch:
             action = on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst)
         if action != 'pause':
@@ -550,6 +552,9 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
                                 0x03, 0x01, 0x00])
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR: cmd=%02x type=%02x -> %s %s\n' % (cmd_num, cmd_type, tr_rv[1], ('(%d bytes)' % len(tr_tlv))))
+            if entry:
+                entry['tr_hex'] = tr_tlv.hex()
+                entry['tr_sw'] = tr_rv[1]
             sw = tr_rv[1]
             if sw == '9000':
                 sys.stderr.write('STATUS poll (chain ended)\n')
@@ -606,7 +611,9 @@ def _send_terminal_profile(scc, tp_hex):
                     if menu:
                         sim_menu = menu
             if fdata and cmd_type:
-                _log_proactive(cmd_type, raw, cmd_qual)
+                entry = _log_proactive(cmd_type, raw, cmd_qual)
+            else:
+                entry = None
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x82, 0x02, dev_dst, dev_src,
@@ -618,6 +625,9 @@ def _send_terminal_profile(scc, tp_hex):
                                 0x03, 0x01, 0x00])
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR(tp): cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
+            if entry:
+                entry['tr_hex'] = tr_tlv.hex()
+                entry['tr_sw'] = tr_rv[1]
             sw = tr_rv[1]
             if sw == '9000':
                 sys.stderr.write('STATUS poll (tp chain ended)\n')
