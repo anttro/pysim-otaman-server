@@ -599,6 +599,8 @@ def _send_terminal_profile(scc, tp_hex):
                             event_list = [b for b in val]
                     if menu:
                         sim_menu = menu
+            if fdata and cmd_type:
+                _log_proactive(cmd_type, raw)
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x82, 0x02, dev_dst, dev_src,
