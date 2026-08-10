@@ -16,7 +16,7 @@ from construct import GreedyBytes
 from osmocom.construct import GsmOrUcs2Adapter
 
 
-VERSION = '1.4.3'
+VERSION = '1.5.0'
 
 
 class StderrApduTracer(ApduTracer):
@@ -342,6 +342,33 @@ PROACTIVE_TYPE_NAMES = {
     0x15: 'LAUNCH BROWSER', 0x70: 'ACTIVATE',
 }
 
+PLI_QUALIFIER_NAMES = {
+    0x00: 'Location Information (MCC, MNC, LAC/TAC, Cell ID)',
+    0x01: 'IMEI',
+    0x02: 'Network Measurement results',
+    0x03: 'Date, time and time zone',
+    0x04: 'Language setting',
+    0x05: 'Timing Advance',
+    0x06: 'Access Technology (single)',
+    0x08: 'IMEISV',
+    0x09: 'Search Mode',
+    0x0A: 'Battery charge state',
+    0x0C: 'Current WSID',
+    0x0D: 'Broadcast Network information',
+    0x0E: 'Multiple Access Technologies',
+    0x0F: 'Location Info (multi-RAT)',
+    0x10: 'NMR (multi-RAT)',
+    0x11: 'CSG ID list + HNB name',
+    0x12: 'H(e)NB IP address',
+    0x13: 'H(e)NB surrounding macrocells',
+    0x14: 'Current WLAN identifier',
+    0x15: 'Slices information',
+    0x16: 'CAG information list',
+    0x17: 'Rejected slices information',
+}
+
+_PLI_DATA = {q: '' for q in PLI_QUALIFIER_NAMES}
+
 
 def _init_proactive_session():
     global _PROACTIVE_SESSION_START
@@ -369,6 +396,25 @@ def _send_status(scc):
     """STATUS (F2) with correct P3 per card type: SIM=0x23, UICC=0xFF."""
     p3 = '23' if scc.cat_cla == 'a0' else 'ff'
     return scc._tp.send_apdu('%sf20000%s' % (scc.cat_cla, p3))
+
+
+def _send_event_download(scc, event_type, event_data=None):
+    """Send ENVELOPE(Event Download) for the given event type.
+    Builds: CLA C2 0000 Lc  D6 [len] (99 01 [type] 82 02 82 81 [extra])"""
+    inner = bytearray()
+    inner.extend([0x99, 0x01, event_type])
+    inner.extend([0x82, 0x02, 0x82, 0x81])
+    if event_data:
+        inner.extend(event_data)
+    d6_tlv = bytes([0xD6, len(inner)]) + bytes(inner)
+    env_hex = '%sc20000%02x%s' % (scc.cat_cla, len(d6_tlv), d6_tlv.hex())
+    sys.stderr.write('ENVELOPE(Event Download): type=0x%02x data=%s\n' % (event_type, event_data.hex() if event_data else '(none)'))
+    data, sw = scc._tp.send_apdu(env_hex)
+    sys.stderr.write('ENVELOPE SW: %s\n' % sw)
+    if sw.startswith('91'):
+        _handle_proactive_chain(scc, sw)
+        sw = '9000'
+    return data, sw
 
 
 def _skip_ber_len(raw, off):
@@ -684,6 +730,14 @@ class PysimHandler(BaseHTTPRequestHandler):
             self._log_resp(resp)
         elif self.path == '/api/events':
             resp = self.server.event_list or []
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/pli-qualifiers':
+            qualifiers = [{'code': '%02x' % q, 'name': PLI_QUALIFIER_NAMES[q]} for q in PLI_QUALIFIER_NAMES]
+            self._send_json(qualifiers)
+            self._log_resp(qualifiers)
+        elif self.path == '/api/pli-dict':
+            resp = {('%02x' % q): v for q, v in _PLI_DATA.items()}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/proactive-log':
@@ -1152,6 +1206,42 @@ class PysimHandler(BaseHTTPRequestHandler):
                 else:
                     self.server.menu_active = False
                     resp['type'] = 'done'
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/event-send':
+            scc = self.server.scc
+            if not scc:
+                self._send_json({'error': _err('reader_not_init', lang)}, 503)
+                self._log_resp({'error': _err('reader_not_init', lang)})
+                return
+            body = self._read_body()
+            self._log_req(body)
+            event_type = body.get('event_type')
+            event_data_hex = body.get('event_data')
+            if event_type is None:
+                self._send_json({'error': 'event_type is required'}, 400)
+                return
+            event_data = bytes.fromhex(event_data_hex) if event_data_hex else None
+            data, sw = _send_event_download(scc, event_type, event_data)
+            resp = {'sw': sw}
+            if data:
+                resp['data'] = data
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/pli-dict':
+            body = self._read_body()
+            self._log_req(body)
+            if isinstance(body, dict):
+                for k, v in body.items():
+                    if isinstance(v, str):
+                        try:
+                            code = int(k, 16)
+                            if code in _PLI_DATA:
+                                bytes.fromhex('') if not v else bytes.fromhex(v)
+                                _PLI_DATA[code] = v
+                        except (ValueError, KeyError):
+                            pass
+            resp = {('%02x' % q): v for q, v in _PLI_DATA.items()}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/send-ota':

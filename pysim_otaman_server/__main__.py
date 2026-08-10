@@ -71,6 +71,7 @@ def main():
     if scc and hasattr(scc, '_tp'):
         scc._tp.apdu_tracer = StderrApduTracer()
         try:
+            _init_proactive_session()
             sys.stderr.write('INIT: sending TERMINAL PROFILE %s (CLA=%s)\n' % (opts.terminal_profile, scc.cat_cla))
             sm, el = _send_terminal_profile(scc, opts.terminal_profile)
             sys.stderr.write('INIT: TP done, menu=%s events=%s\n' % ('yes' if sm else 'no', 'yes' if el else 'no'))
@@ -84,7 +85,6 @@ def main():
                 _handle_proactive_chain(scc, st_sw)
         except Exception:
             traceback.print_exc(file=sys.stderr)
-        _init_proactive_session()
     if app is not None and opts.apdu_trace:
         # PysimApp.__init__ routes PySimLogger through app.poutput() (app.stdout)
         # and drops the root level to INFO. Re-route pysim's own APDU trace logging
