@@ -195,6 +195,48 @@ curl -s http://127.0.0.1:8080/api/send-ota -X POST -d '{
 }'
 ```
 
+## Proactive UICC / CAT (Card Application Toolkit)
+
+The server implements a full CAT session with TERMINAL PROFILE, proactive command
+chain handling, STATUS polling, SIM Toolkit menu browsing, event download, and a
+PROVIDE LOCAL INFORMATION data dictionary.
+
+### Proactive command log
+
+`GET /api/proactive-log` returns the last 50 encountered proactive commands in
+the current session, each with its type hex code, human-readable name, seconds
+elapsed since equip/reset, and byte count. Cleared on card equip and rescue.
+
+### Event download
+
+`POST /api/event-send` sends an `ENVELOPE(Event Download)` for a given event
+type with optional event-specific data (location info, access technology, etc.).
+The OTAMan PWA provides per-event forms with structured inputs and a full
+Network Rejection form with 53-cause unified dropdown.
+
+### PLI data dictionary
+
+The server stores a PROVIDE LOCAL INFORMATION response data dictionary — hex
+values for each of the 22 PLI qualifier codes defined by TS 102 223 and
+TS 131 111. These values persist in memory until server restart (not cleared on
+equip/reset). The OTAMan PWA provides per-qualifier decode/encode forms.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/pli-qualifiers` | GET | List of qualifier codes with descriptions |
+| `/api/pli-dict` | GET | Current dictionary (hex values per qualifier) |
+| `/api/pli-dict` | POST | Update dictionary entries |
+
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/events` | GET | Event list from SET UP EVENT LIST |
+| `/api/event-send` | POST | Send ENVELOPE(Event Download) |
+| `/api/proactive-log` | GET | Last 50 proactive commands |
+| `/api/status-poll` | POST | Manual STATUS poll + FETCH if 91XX |
+| `/api/rescue` | POST | Re-send TERMINAL PROFILE to recover CAT session |
+
 ## Version compatibility
 
 | Server | PWA (OTAMan) | Status |
