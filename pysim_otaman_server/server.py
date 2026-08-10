@@ -330,6 +330,40 @@ class _DefaultProactiveHandler(ProactiveHandler):
 
 _STK_DECODE = GsmOrUcs2Adapter(GreedyBytes)
 
+_PROACTIVE_LOG = []
+_PROACTIVE_SESSION_START = None
+
+PROACTIVE_TYPE_NAMES = {
+    0x03: 'POLL INTERVAL', 0x05: 'SET UP EVENT LIST',
+    0x13: 'SEND SHORT MESSAGE', 0x20: 'PLAY TONE',
+    0x21: 'DISPLAY TEXT', 0x22: 'GET INKEY', 0x23: 'GET INPUT',
+    0x24: 'SELECT ITEM', 0x25: 'SET UP MENU',
+    0x26: 'PROVIDE LOCAL INFORMATION',
+    0x15: 'LAUNCH BROWSER', 0x70: 'ACTIVATE',
+}
+
+
+def _init_proactive_session():
+    global _PROACTIVE_SESSION_START
+    _PROACTIVE_SESSION_START = time.time()
+
+
+def _log_proactive(cmd_type, raw):
+    if _PROACTIVE_SESSION_START is None:
+        return
+    _PROACTIVE_LOG.append({
+        'type_hex': '%02x' % cmd_type,
+        'type_name': PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN'),
+        'elapsed': round(time.time() - _PROACTIVE_SESSION_START, 1),
+        'bytes': len(raw) if raw else 0,
+    })
+
+
+def _reset_proactive_log():
+    global _PROACTIVE_LOG, _PROACTIVE_SESSION_START
+    _PROACTIVE_LOG.clear()
+    _PROACTIVE_SESSION_START = time.time()
+
 
 def _send_status(scc):
     """STATUS (F2) with correct P3 per card type: SIM=0x23, UICC=0xFF."""
@@ -448,6 +482,7 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
         action = None
         if raw:
             cmd_num, cmd_type, dev_src, dev_dst = _parse_proactive_header(raw)
+            _log_proactive(cmd_type, raw)
         else:
             cmd_num, cmd_type, dev_src, dev_dst = 1, 0, 0x83, 0x81
         if on_fetch:
@@ -651,6 +686,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = self.server.event_list or []
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/proactive-log':
+            log = list(reversed(_PROACTIVE_LOG[-50:]))
+            self._send_json(log)
+            self._log_resp(log)
         elif self.path == '/api/stk-status':
             resp = {'active': self.server.menu_active,
                     'pending': self.server.stk_pending is not None,
@@ -692,6 +731,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self.server.stk_pending = None
                 self.server.menu_active = False
                 self.server.event_list = None
+                _reset_proactive_log()
                 self.server.card = self.server.app.card
                 self.server.scc.cat_cla = '80' if isinstance(self.server.card, UiccCardBase) else 'a0'
                 sm, el = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
@@ -756,6 +796,7 @@ class PysimHandler(BaseHTTPRequestHandler):
             self.server.stk_pending = None
             self.server.menu_active = False
             self.server.event_list = None
+            _reset_proactive_log()
             sm, el = _send_terminal_profile(scc, self.server.terminal_profile)
             self.server.sim_menu = sm
             self.server.event_list = el
