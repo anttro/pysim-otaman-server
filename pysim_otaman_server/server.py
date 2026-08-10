@@ -375,15 +375,19 @@ def _init_proactive_session():
     _PROACTIVE_SESSION_START = time.time()
 
 
-def _log_proactive(cmd_type, raw):
+def _log_proactive(cmd_type, raw, qualifier=None):
     if _PROACTIVE_SESSION_START is None:
         return
-    _PROACTIVE_LOG.append({
+    entry = {
         'type_hex': '%02x' % cmd_type,
         'type_name': PROACTIVE_TYPE_NAMES.get(cmd_type, 'UNKNOWN'),
         'elapsed': round(time.time() - _PROACTIVE_SESSION_START, 1),
         'bytes': len(raw) if raw else 0,
-    })
+        'raw': raw.hex() if raw else None,
+    }
+    if qualifier is not None:
+        entry['qualifier'] = '%02x' % qualifier
+    _PROACTIVE_LOG.append(entry)
 
 
 def _reset_proactive_log():
@@ -451,6 +455,7 @@ def _decode_dcs_text(raw):
 
 def _parse_proactive_header(raw):
     cmd_num, cmd_type = 1, 0
+    cmd_qual = None
     dev_src, dev_dst = 0x83, 0x81
     if raw[0] == 0xD0:
         off = _skip_ber_len(raw, 1)
@@ -458,10 +463,10 @@ def _parse_proactive_header(raw):
             tag, tlen = raw[off], raw[off + 1]
             val = raw[off + 2: off + 2 + tlen]; off += 2 + tlen
             if tag == 0x81 and tlen >= 3:
-                cmd_num, cmd_type = val[0], val[1]
+                cmd_num, cmd_type, cmd_qual = val[0], val[1], val[2]
             elif tag == 0x82 and tlen >= 2:
                 dev_src, dev_dst = val[0], val[1]
-    return cmd_num, cmd_type, dev_src, dev_dst
+    return cmd_num, cmd_type, dev_src, dev_dst, cmd_qual
 
 
 def _find_sms_tpdu(raw):
@@ -527,10 +532,10 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
         raw = bytes.fromhex(fdata) if fdata else None
         action = None
         if raw:
-            cmd_num, cmd_type, dev_src, dev_dst = _parse_proactive_header(raw)
-            _log_proactive(cmd_type, raw)
+            cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = _parse_proactive_header(raw)
+            _log_proactive(cmd_type, raw, cmd_qual)
         else:
-            cmd_num, cmd_type, dev_src, dev_dst = 1, 0, 0x83, 0x81
+            cmd_num, cmd_type, dev_src, dev_dst, cmd_qual = 1, 0, 0x83, 0x81, None
         if on_fetch:
             action = on_fetch(raw, cmd_num, cmd_type, dev_src, dev_dst)
         if action != 'pause':
@@ -567,6 +572,7 @@ def _send_terminal_profile(scc, tp_hex):
             fetch_len = int(sw[2:], 16) if len(sw) == 4 else 0xff
             fdata, sw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
             cmd_num, cmd_type = 1, 0
+            cmd_qual = None
             dev_src, dev_dst = 0x83, 0x81
             if fdata:
                 raw = bytes.fromhex(fdata)
@@ -579,7 +585,7 @@ def _send_terminal_profile(scc, tp_hex):
                         val = raw[off + 2: off + 2 + tlen]
                         off += 2 + tlen
                         if tag == 0x81 and tlen >= 3:
-                            cmd_num, cmd_type = val[0], val[1]
+                            cmd_num, cmd_type, cmd_qual = val[0], val[1], val[2]
                             if cmd_type == 0x25:
                                 menu = {'command_number': cmd_num, 'items': items}
                         elif tag == 0x82 and tlen >= 2:
@@ -600,7 +606,7 @@ def _send_terminal_profile(scc, tp_hex):
                     if menu:
                         sim_menu = menu
             if fdata and cmd_type:
-                _log_proactive(cmd_type, raw)
+                _log_proactive(cmd_type, raw, cmd_qual)
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x82, 0x02, dev_dst, dev_src,
