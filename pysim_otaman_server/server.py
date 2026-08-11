@@ -406,17 +406,7 @@ def _do_status_poll():
                 _handle_proactive_chain(scc, st_sw)
         except Exception as e:
             sys.stderr.write('AUTO-STATUS error: %s\n' % e)
-            _poll_disable()
-            if _server_ref:
-                _server_ref.card = None
-                _server_ref.scc = None
-                _server_ref.stk_pending = None
-                _server_ref.menu_active = False
-                _server_ref.event_list = None
-                _server_ref.sim_menu = None
-                _reset_proactive_log()
-                global _CARD_CONNECTED
-                _CARD_CONNECTED = False
+            _handle_card_disconnect()
     _reset_poll_timer()
 
 def _poll_enable():
@@ -432,6 +422,20 @@ def _poll_disable():
         _POLL_TIMER = None
 
 _server_ref = None
+
+
+def _handle_card_disconnect():
+    global _CARD_CONNECTED
+    _poll_disable()
+    _CARD_CONNECTED = False
+    if _server_ref:
+        _server_ref.card = None
+        _server_ref.scc = None
+        _server_ref.stk_pending = None
+        _server_ref.menu_active = False
+        _server_ref.event_list = None
+        _server_ref.sim_menu = None
+    _reset_proactive_log()
 
 
 def _init_proactive_session():
@@ -912,17 +916,23 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._log_resp({'error': _err('reader_not_init', lang)})
                 return
             sys.stderr.write('STATUS poll (manual)\n')
-            st_data, st_sw = _send_status(scc)
-            sys.stderr.write('STATUS -> %s\n' % st_sw)
-            resp = {'sw': st_sw}
-            if st_sw.startswith('91'):
-                fetch_len = int(st_sw[2:], 16) if len(st_sw) == 4 else 0x100
-                fdata, fsw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
-                resp['fetch'] = fdata
-                resp['fetch_sw'] = fsw
-                sys.stderr.write('STATUS-FETCH(%s): %s -> %s\n' % (fetch_len, fdata[:80] if fdata else '(none)', fsw))
-            self._send_json(resp)
-            self._log_resp(resp)
+            try:
+                st_data, st_sw = _send_status(scc)
+                sys.stderr.write('STATUS -> %s\n' % st_sw)
+                resp = {'sw': st_sw}
+                if st_sw.startswith('91'):
+                    fetch_len = int(st_sw[2:], 16) if len(st_sw) == 4 else 0x100
+                    fdata, fsw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
+                    resp['fetch'] = fdata
+                    resp['fetch_sw'] = fsw
+                    sys.stderr.write('STATUS-FETCH(%s): %s -> %s\n' % (fetch_len, fdata[:80] if fdata else '(none)', fsw))
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                sys.stderr.write('STATUS poll error: %s\n' % e)
+                _handle_card_disconnect()
+                self._send_json({'sw': None, 'error': 'card disconnected'})
+                self._log_resp({'sw': None, 'error': 'card disconnected'})
         elif self.path == '/api/rescue':
             scc = self.server.scc
             if not scc:
@@ -1181,8 +1191,11 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
-                err = {'exists': False, 'error': str(e)}
-                self._send_json(err, 404)
+                sys.stderr.write('OTA send error: %s\n' % e)
+                if 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
+                    _handle_card_disconnect()
+                err = {'success': False, 'error': str(e)}
+                self._send_json(err, 500)
                 self._log_resp(err)
         elif self.path == '/api/menu-select':
             scc = self.server.scc
@@ -1309,12 +1322,18 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': 'event_type is required'}, 400)
                 return
             event_data = bytes.fromhex(event_data_hex) if event_data_hex else None
-            data, sw = _send_event_download(scc, event_type, event_data)
-            resp = {'sw': sw}
-            if data:
-                resp['data'] = data
-            self._send_json(resp)
-            self._log_resp(resp)
+            try:
+                data, sw = _send_event_download(scc, event_type, event_data)
+                resp = {'sw': sw}
+                if data:
+                    resp['data'] = data
+                self._send_json(resp)
+                self._log_resp(resp)
+            except Exception as e:
+                sys.stderr.write('Event send error: %s\n' % e)
+                _handle_card_disconnect()
+                self._send_json({'sw': None, 'error': 'card disconnected'})
+                self._log_resp({'sw': None, 'error': 'card disconnected'})
         elif self.path == '/api/pli-dict':
             body = self._read_body()
             self._log_req(body)
@@ -1401,6 +1420,9 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
+                sys.stderr.write('OTA send error: %s\n' % e)
+                if 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
+                    _handle_card_disconnect()
                 err = {'success': False, 'error': str(e)}
                 self._send_json(err, 500)
                 self._log_resp(err)
