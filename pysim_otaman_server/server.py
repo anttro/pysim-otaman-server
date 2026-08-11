@@ -948,11 +948,8 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr.write('STATUS -> %s\n' % st_sw)
                 resp = {'sw': st_sw}
                 if st_sw.startswith('91'):
-                    fetch_len = int(st_sw[2:], 16) if len(st_sw) == 4 else 0x100
-                    fdata, fsw = scc._tp.send_apdu('%s120000%02x' % (scc.cat_cla, fetch_len))
-                    resp['fetch'] = fdata
-                    resp['fetch_sw'] = fsw
-                    sys.stderr.write('STATUS-FETCH(%s): %s -> %s\n' % (fetch_len, fdata[:80] if fdata else '(none)', fsw))
+                    _handle_proactive_chain(scc, st_sw)
+                    resp['proactive'] = True
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
