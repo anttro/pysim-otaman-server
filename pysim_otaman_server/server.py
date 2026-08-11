@@ -466,8 +466,8 @@ def _reset_proactive_log():
 
 
 def _send_status(scc):
-    """STATUS (F2) with correct P3 per card type: SIM=0x23, UICC=0xFF."""
-    p3 = '23' if scc.cat_cla == 'a0' else 'ff'
+    """STATUS (F2) with correct P3 per card type: SIM=0x23, UICC=0x00."""
+    p3 = '23' if scc.cat_cla == 'a0' else '00'
     return scc._tp.send_apdu('%sf20000%s' % (scc.cat_cla, p3))
 
 
@@ -872,13 +872,17 @@ class PysimHandler(BaseHTTPRequestHandler):
                 sys.stderr = old_stderr
             elapsed = int((time.time() - t0) * 1000)
             status = 'OK' if not output or 'not a recognized command' not in output else 'ERROR'
-            if str(cmd).strip().startswith('equip') and self.server.scc and self.server.terminal_profile:
+            if str(cmd).strip().startswith('equip') and self.server.app and self.server.app.card and self.server.terminal_profile:
+                global _CARD_CONNECTED
                 self.server.stk_pending = None
                 self.server.menu_active = False
                 self.server.event_list = None
                 _reset_proactive_log()
                 self.server.card = self.server.app.card
+                self.server.scc = self.server.app.card._scc
                 self.server.scc.cat_cla = '80' if isinstance(self.server.card, UiccCardBase) else 'a0'
+                _CARD_CONNECTED = True
+                _poll_enable()
                 sm, el = _send_terminal_profile(self.server.scc, self.server.terminal_profile)
                 self.server.sim_menu = sm
                 self.server.event_list = el
