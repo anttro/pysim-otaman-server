@@ -36,6 +36,8 @@ def main():
                         help='SM-SC address for SMS-SUBMIT routing in PoR-in-submit mode (default: 12345678912)')
     parser.add_argument('--terminal-profile', default='7FFFFFFFFF0000CF02', metavar='HEX',
                         help='TERMINAL PROFILE payload (default: 10-byte profile with SMS-PP download and event list)')
+    parser.add_argument('--poll-interval', type=int, default=30, metavar='SECS',
+                        help='Idle interval before automatic STATUS polling (1-255 seconds, default: 30). Disable with --poll-interval 0')
     parser.add_argument('--no-card-init', action='store_true', default=False,
                         help='Skip pysim card initialization (preserve CAT session — no file manager)')
 
@@ -119,6 +121,15 @@ def main():
     server.event_list = event_list
     server.menu_active = False
     server.stk_pending = None
+    # Set server reference for polling timer and mark card as connected
+    import pysim_otaman_server.server
+    pysim_otaman_server.server._server_ref = server
+    pysim_otaman_server.server._CARD_CONNECTED = True
+    if opts.poll_interval is not None:
+        pysim_otaman_server.server._set_poll_interval(opts.poll_interval)
+    # Auto-enable polling if card initialized successfully (unless interval is 0)
+    if server.scc and server.card and opts.poll_interval != 0:
+        pysim_otaman_server.server._poll_enable()
     print("─" * 70)
     print("  pysim-otaman-server v%s listening on http://%s:%s" % (VERSION, opts.http_host, opts.http_port))
     print("  Now open OTAMan and click Connect in the pySim tab!")

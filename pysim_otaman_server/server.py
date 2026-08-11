@@ -2,6 +2,7 @@ import json
 import sys
 import os
 import time
+import threading
 import traceback
 import re
 import codecs
@@ -369,6 +370,69 @@ PLI_QUALIFIER_NAMES = {
 
 _PLI_DATA = {q: '' for q in PLI_QUALIFIER_NAMES}
 
+_POLL_ENABLED = False
+_POLL_INTERVAL = 30
+_POLL_TIMER = None
+_POLL_LOCK = threading.Lock()
+_CARD_CONNECTED = False
+
+def _set_poll_interval(seconds):
+    global _POLL_INTERVAL
+    _POLL_INTERVAL = max(1, min(255, int(seconds)))
+
+def _reset_poll_timer():
+    global _POLL_TIMER
+    if _POLL_TIMER is not None:
+        _POLL_TIMER.cancel()
+        _POLL_TIMER = None
+    if _POLL_ENABLED:
+        _POLL_TIMER = threading.Timer(_POLL_INTERVAL, _do_status_poll)
+        _POLL_TIMER.daemon = True
+        _POLL_TIMER.start()
+
+def _do_status_poll():
+    global _POLL_TIMER
+    _POLL_TIMER = None
+    if not _POLL_ENABLED:
+        return
+    with _POLL_LOCK:
+        try:
+            scc = getattr(_server_ref, 'scc', None) if _server_ref else None
+            if not scc:
+                return
+            st_data, st_sw = _send_status(scc)
+            sys.stderr.write('AUTO-STATUS -> %s\n' % st_sw)
+            if st_sw.startswith('91'):
+                _handle_proactive_chain(scc, st_sw)
+        except Exception as e:
+            sys.stderr.write('AUTO-STATUS error: %s\n' % e)
+            _poll_disable()
+            if _server_ref:
+                _server_ref.card = None
+                _server_ref.scc = None
+                _server_ref.stk_pending = None
+                _server_ref.menu_active = False
+                _server_ref.event_list = None
+                _server_ref.sim_menu = None
+                _reset_proactive_log()
+                global _CARD_CONNECTED
+                _CARD_CONNECTED = False
+    _reset_poll_timer()
+
+def _poll_enable():
+    global _POLL_ENABLED
+    _POLL_ENABLED = True
+    _reset_poll_timer()
+
+def _poll_disable():
+    global _POLL_ENABLED, _POLL_TIMER
+    _POLL_ENABLED = False
+    if _POLL_TIMER is not None:
+        _POLL_TIMER.cancel()
+        _POLL_TIMER = None
+
+_server_ref = None
+
 
 def _init_proactive_session():
     global _PROACTIVE_SESSION_START
@@ -544,7 +608,7 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x82, 0x02, dev_dst, dev_src,
-                                0x84, 0x02, 0x01, 0x1E,
+                                0x84, 0x02, 0x01, _POLL_INTERVAL,
                                 0x03, 0x01, 0x00])
             else:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
@@ -617,7 +681,7 @@ def _send_terminal_profile(scc, tp_hex):
             if cmd_type == 0x03:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
                                 0x82, 0x02, dev_dst, dev_src,
-                                0x84, 0x02, 0x01, 0x1E,
+                                0x84, 0x02, 0x01, _POLL_INTERVAL,
                                 0x03, 0x01, 0x00])
             else:
                 tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
@@ -758,6 +822,10 @@ class PysimHandler(BaseHTTPRequestHandler):
             resp = {('%02x' % q): v for q, v in _PLI_DATA.items()}
             self._send_json(resp)
             self._log_resp(resp)
+        elif self.path == '/api/poll-status':
+            resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL}
+            self._send_json(resp)
+            self._log_resp(resp)
         elif self.path == '/api/proactive-log':
             log = list(reversed(_PROACTIVE_LOG[-50:]))
             self._send_json(log)
@@ -774,6 +842,7 @@ class PysimHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         lang = _get_lang(self.headers)
+        _reset_poll_timer()
         if self.path == '/api/command':
             app = self.server.app
             if not app:
@@ -1260,6 +1329,16 @@ class PysimHandler(BaseHTTPRequestHandler):
                         except (ValueError, KeyError):
                             pass
             resp = {('%02x' % q): v for q, v in _PLI_DATA.items()}
+            self._send_json(resp)
+            self._log_resp(resp)
+        elif self.path == '/api/poll-toggle':
+            body = self._read_body()
+            self._log_req(body)
+            if isinstance(body, dict) and body.get('enabled'):
+                _poll_enable()
+            else:
+                _poll_disable()
+            resp = {'enabled': _POLL_ENABLED, 'interval': _POLL_INTERVAL}
             self._send_json(resp)
             self._log_resp(resp)
         elif self.path == '/api/send-ota':
