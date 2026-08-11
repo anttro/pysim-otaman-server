@@ -630,9 +630,13 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
                                 0x84, 0x02, 0x01, _POLL_INTERVAL,
                                 0x03, 0x01, 0x00])
             else:
-                tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x82, 0x02, dev_dst, dev_src,
-                                0x03, 0x01, 0x00])
+                base = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+                              0x82, 0x02, dev_dst, dev_src])
+                if cmd_type == 0x26 and cmd_qual is not None:
+                    pli_hex = _PLI_DATA.get(cmd_qual, '')
+                    if pli_hex:
+                        base += bytes.fromhex(pli_hex)
+                tr_tlv = base + bytes([0x03, 0x01, 0x00])
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR: cmd=%02x type=%02x -> %s %s\n' % (cmd_num, cmd_type, tr_rv[1], ('(%d bytes)' % len(tr_tlv))))
             if entry:
@@ -703,9 +707,13 @@ def _send_terminal_profile(scc, tp_hex):
                                 0x84, 0x02, 0x01, _POLL_INTERVAL,
                                 0x03, 0x01, 0x00])
             else:
-                tr_tlv = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
-                                0x82, 0x02, dev_dst, dev_src,
-                                0x03, 0x01, 0x00])
+                base = bytes([0x81, 0x03, cmd_num, cmd_type, 0x00,
+                              0x82, 0x02, dev_dst, dev_src])
+                if cmd_type == 0x26 and cmd_qual is not None:
+                    pli_hex = _PLI_DATA.get(cmd_qual, '')
+                    if pli_hex:
+                        base += bytes.fromhex(pli_hex)
+                tr_tlv = base + bytes([0x03, 0x01, 0x00])
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR(tp): cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
             if entry:
