@@ -1218,7 +1218,7 @@ class PysimHandler(BaseHTTPRequestHandler):
                 self._send_json(resp)
                 self._log_resp(resp)
             except Exception as e:
-                sys.stderr.write('OTA send error: %s\n' % e)
+                sys.stderr.write('Handler error: %s\n' % e)
                 if 'Card' in str(e) or 'Transaction' in str(e) or 'Transmit' in str(e):
                     _handle_card_disconnect()
                 err = {'success': False, 'error': str(e)}
