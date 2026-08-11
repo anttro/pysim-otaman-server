@@ -424,6 +424,21 @@ def _poll_disable():
 _server_ref = None
 
 
+def _tr_data_only(tr_tlv):
+    """Strip boilerplate CTLVs (Command Details, Device IDs, Result) from TR,
+    returning only command-specific data TLVs or empty bytes."""
+    skip_tags = {0x81, 0x82, 0x03, 0x83}
+    data = bytearray()
+    off = 0
+    while off < len(tr_tlv) - 1:
+        tag, tlen = tr_tlv[off], tr_tlv[off + 1]
+        val = tr_tlv[off + 2: off + 2 + tlen]
+        off += 2 + tlen
+        if tag not in skip_tags:
+            data.extend(tr_tlv[off - 2 - tlen: off])
+    return bytes(data)
+
+
 def _handle_card_disconnect():
     global _CARD_CONNECTED
     _poll_disable()
@@ -621,7 +636,7 @@ def _handle_proactive_chain(scc, sw91, on_fetch=None):
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR: cmd=%02x type=%02x -> %s %s\n' % (cmd_num, cmd_type, tr_rv[1], ('(%d bytes)' % len(tr_tlv))))
             if entry:
-                entry['tr_hex'] = tr_tlv.hex()
+                entry['tr_hex'] = _tr_data_only(tr_tlv).hex()
                 entry['tr_sw'] = tr_rv[1]
             sw = tr_rv[1]
             if sw == '9000':
@@ -694,7 +709,7 @@ def _send_terminal_profile(scc, tp_hex):
             tr_rv = scc._tp.send_apdu('%s140000%02x%s' % (scc.cat_cla, len(tr_tlv), tr_tlv.hex()))
             sys.stderr.write('TR(tp): cmd=%02x type=%02x -> %s\n' % (cmd_num, cmd_type, tr_rv[1]))
             if entry:
-                entry['tr_hex'] = tr_tlv.hex()
+                entry['tr_hex'] = _tr_data_only(tr_tlv).hex()
                 entry['tr_sw'] = tr_rv[1]
             sw = tr_rv[1]
             if sw == '9000':
