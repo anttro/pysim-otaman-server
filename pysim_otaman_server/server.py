@@ -17,7 +17,7 @@ from construct import GreedyBytes
 from osmocom.construct import GsmOrUcs2Adapter
 
 
-VERSION = '1.6.0'
+VERSION = '1.6.1'
 
 
 class StderrApduTracer(ApduTracer):
@@ -753,10 +753,16 @@ class PysimHandler(BaseHTTPRequestHandler):
             sys.stderr.write("RESPONSE %s: %s\n" % (self.path, json.dumps(data, ensure_ascii=False)))
 
     def do_OPTIONS(self):
+        self._log_req()
         self.send_response(204)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        # Chrome/Edge Private Network Access: a page served from a public (or
+        # otherwise less-local) origin needs explicit permission to reach this
+        # loopback server. Without this, the preflight fails and the browser
+        # blocks the follow-up GET/POST ("Permission was denied ... loopback").
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
         self.end_headers()
 
     def do_GET(self):
