@@ -44,6 +44,19 @@ call "%VENV_DIR%\Scripts\activate.bat"
 REM Upgrade pip
 python -m pip install --upgrade pip -q
 
+REM pyscard ships precompiled wheels on PyPI - no compiler needed
+echo === Installing pyscard (precompiled wheel) ===
+pip install pyscard --only-binary :all:
+if %errorlevel% neq 0 (
+    echo Error: No precompiled pyscard wheel for this Python version.
+    echo Install Microsoft C++ Build Tools ("Desktop development with C++")
+    echo from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo and retry.
+    pause
+    exit /b 1
+)
+echo.
+
 REM Install pysim
 echo === Installing pysim ===
 pip install git+https://github.com/osmocom/pysim.git

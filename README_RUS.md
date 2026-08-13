@@ -9,6 +9,7 @@ HTTP REST сервер, оборачивающий [pysim](https://osmocom.org/p
 - **Python 3.8+** с `pip`
 - **Git**
 - **Считыватель смарт-карт (PC/SC или serial/FTDI)** — PC/SC предпочтительнее, требует `pcsc-lite` + `ccid` на Linux
+- **Только Windows** — `pyscard` (обёртка драйвера PC/SC) устанавливается из готовых wheels PyPI, поэтому компилятор обычно не требуется. Microsoft C++ Build Tools («Desktop development with C++») нужны только если pip переходит к сборке из исходников (например, неподдерживаемая версия Python).
 
 ## Быстрый старт
 

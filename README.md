@@ -9,6 +9,7 @@ Exposes a local HTTP API to execute pysim-shell commands against a SIM/USIM/UICC
 - **Python 3.8+** with `pip`
 - **Git**
 - **Smart card reader (PC/SC or serial/FTDI) ** — PC/SC is preferable, requires `pcsc-lite` + `ccid` on Linux
+- **Windows only** — `pyscard` (the PC/SC driver wrapper) is installed from precompiled PyPI wheels, so no compiler is normally needed. Microsoft C++ Build Tools ("Desktop development with C++") are only required if pip falls back to a source build (e.g. unsupported Python version).
 
 ## Quick start
 
