@@ -59,7 +59,7 @@ source .venv/bin/activate   # Linux/macOS
 # .venv\Scripts\activate    # Windows
 
 # Установить pysim
-pip install git+https://gitea.osmocom.org/sim-card/pysim.git
+pip install git+https://github.com/osmocom/pysim.git
 
 # Установить pysim-otaman-server
 pip install .

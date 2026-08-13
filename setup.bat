@@ -46,7 +46,7 @@ python -m pip install --upgrade pip -q
 
 REM Install pysim
 echo === Installing pysim ===
-pip install git+https://gitea.osmocom.org/sim-card/pysim.git
+pip install git+https://github.com/osmocom/pysim.git
 if %errorlevel% neq 0 (
     echo Error: Failed to install pysim.
     pause

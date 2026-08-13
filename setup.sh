@@ -28,7 +28,7 @@ $PIP install --upgrade pip -q
 # Install pysim from the Osmocom repository
 echo ""
 echo "=== Installing pysim ==="
-$PIP install git+https://gitea.osmocom.org/sim-card/pysim.git
+$PIP install git+https://github.com/osmocom/pysim.git
 
 # Install pysim-otaman-server
 echo ""
