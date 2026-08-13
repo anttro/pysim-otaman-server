@@ -44,17 +44,11 @@ call "%VENV_DIR%\Scripts\activate.bat"
 REM Upgrade pip
 python -m pip install --upgrade pip -q
 
-REM pyscard ships precompiled wheels on PyPI - no compiler needed
-echo === Installing pyscard (precompiled wheel) ===
-pip install pyscard --only-binary :all:
-if %errorlevel% neq 0 (
-    echo Error: No precompiled pyscard wheel for this Python version.
-    echo Install Microsoft C++ Build Tools ("Desktop development with C++")
-    echo from https://visualstudio.microsoft.com/visual-cpp-build-tools/
-    echo and retry.
-    pause
-    exit /b 1
-)
+REM pyscard has precompiled wheels for Python 3.10-3.13.
+REM On Python 3.9 / 3.14 pip builds it from source (requires Microsoft C++ Build Tools).
+echo Note: pyscard ships precompiled wheels for Python 3.10-3.13.
+echo       Python 3.9 / 3.14 will build pyscard from source and require
+echo       Microsoft C++ Build Tools ("Desktop development with C++").
 echo.
 
 REM Install pysim
