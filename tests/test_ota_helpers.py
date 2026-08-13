@@ -47,6 +47,17 @@ REFERENCE_VECTORS = {
         '001d1502091515b0000000000000010085a8ca1a9828b0bb00a40000023f00',
 }
 
+# AES-128 reference vectors (public synthetic keys from pySim test_ota.py).
+AES_APDU = '00a40004023f00'
+AES_REFERENCE_VECTORS = {
+    ('16', '19'):
+        '00281516192222b000115a47655527e96e832f1a5c698655715d4331454a0d83952c0ed35245706976b1',
+    ('12', '09'):
+        '001d1512092222b0001100000000110029826122c7a0b79500a40004023f00',
+    ('1e', '19'):
+        '0028151e192222b0001118b202ee47a3203e7370861c383b4142e704157b36e5c0eb4bb33eb6036cbaf8',
+}
+
 
 class TestSpiFromBytes(unittest.TestCase):
     def test_06_09_ciphered_cc(self):
@@ -144,6 +155,19 @@ class TestOtaReference(unittest.TestCase):
         _, spi = _ota_reference('16', '01', '15', '15', 'b00000', '0000000001', APDU, K, K)
         self.assertEqual(spi['counter'], 'counter_must_be_higher')
         self.assertTrue(spi['ciphering'])
+
+    def test_aes128_ciphered_cc(self):
+        out, _ = _ota_reference('16', '19', '22', '22', 'b00011', '0000000011', AES_APDU, KIC_AES, KID_AES)
+        self.assertEqual(out, AES_REFERENCE_VECTORS[('16', '19')])
+
+    def test_aes128_unciphered_cc(self):
+        out, _ = _ota_reference('12', '09', '22', '22', 'b00011', '0000000011', AES_APDU, KIC_AES, KID_AES)
+        self.assertEqual(out, AES_REFERENCE_VECTORS[('12', '09')])
+
+    def test_aes128_counter_plus_one(self):
+        out, spi = _ota_reference('1e', '19', '22', '22', 'b00011', '0000000011', AES_APDU, KIC_AES, KID_AES)
+        self.assertEqual(out, AES_REFERENCE_VECTORS[('1e', '19')])
+        self.assertEqual(spi['counter'], 'counter_must_be_lower')
 
 
 class TestDecodePor(unittest.TestCase):
