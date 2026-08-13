@@ -9,7 +9,7 @@ Exposes a local HTTP API to execute pysim-shell commands against a SIM/USIM/UICC
 - **Python 3.8+** with `pip`
 - **Git**
 - **Smart card reader (PC/SC or serial/FTDI) ** — PC/SC is preferable, requires `pcsc-lite` + `ccid` on Linux
-- **Windows only** — use **Python 3.10–3.13** (3.13 recommended): `pyscard` (the PC/SC driver wrapper) ships precompiled wheels for these versions. On Python 3.9 / 3.14 pip builds `pyscard` from source, which requires Microsoft C++ Build Tools ("Desktop development with C++").
+- **Windows only** — use **Python 3.10–3.13** (3.13 recommended): `pyscard` (the PC/SC driver wrapper) ships precompiled wheels for these versions. On Python 3.9 / 3.14 pip builds `pyscard` from source, which requires Microsoft C++ Build Tools ("Desktop development with C++"). The SMPP bridge (`smpp.twisted3`) is intentionally not installed on Windows, so no C++ Build Tools are needed for Python 3.10–3.13.
 
 ## Quick start
 

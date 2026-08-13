@@ -9,7 +9,7 @@ HTTP REST сервер, оборачивающий [pysim](https://osmocom.org/p
 - **Python 3.8+** с `pip`
 - **Git**
 - **Считыватель смарт-карт (PC/SC или serial/FTDI)** — PC/SC предпочтительнее, требует `pcsc-lite` + `ccid` на Linux
-- **Только Windows** — используйте **Python 3.10–3.13** (рекомендуется 3.13): `pyscard` (обёртка драйвера PC/SC) поставляет готовые wheels для этих версий. На Python 3.9 / 3.14 pip собирает `pyscard` из исходников, для чего требуются Microsoft C++ Build Tools («Desktop development with C++»).
+- **Только Windows** — используйте **Python 3.10–3.13** (рекомендуется 3.13): `pyscard` (обёртка драйвера PC/SC) поставляет готовые wheels для этих версий. На Python 3.9 / 3.14 pip собирает `pyscard` из исходников, для чего требуются Microsoft C++ Build Tools («Desktop development with C++»). Мост SMPP (`smpp.twisted3`) на Windows намеренно не устанавливается, поэтому для Python 3.10–3.13 C++ Build Tools не нужны.
 
 ## Быстрый старт
 

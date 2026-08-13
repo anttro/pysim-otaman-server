@@ -51,11 +51,17 @@ echo       Python 3.9 / 3.14 will build pyscard from source and require
 echo       Microsoft C++ Build Tools ("Desktop development with C++").
 echo.
 
-REM Install pysim
+REM Install pysim (without the SMPP bridge - not needed by pysim-shell)
 echo === Installing pysim ===
-pip install git+https://github.com/osmocom/pysim.git
+pip install --no-deps git+https://github.com/osmocom/pysim.git
 if %errorlevel% neq 0 (
     echo Error: Failed to install pysim.
+    pause
+    exit /b 1
+)
+pip install -r "%~dp0requirements-pysim.txt"
+if %errorlevel% neq 0 (
+    echo Error: Failed to install pysim dependencies.
     pause
     exit /b 1
 )
